@@ -1,0 +1,591 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+const STORAGE_KEY = 'gator-battletech-v1'
+
+const initialState = {
+  pilotName: '', mechName: '', gunnery: 4,
+  attackerMove: 0, attackerProne: false, sensorHits: 0, armDamage: 0, heat: 0,
+  targetHexes: 0, targetJumped: false, targetState: 'normal',
+  lightWoods: 0, heavyWoods: 0, partialCover: false, depthOneWater: false,
+  targetType: 'primary', indirect: 'none', range: 'short', minimumRange: 0, distance: 1,
+  customModifier: 0, customLabel: '',
+  losLinked: { lightWoods: false, heavyWoods: false, partialCover: false, depthOneWater: false },
+  losBlocked: false,
+  losActive: false,
+  los: {
+    distance: 1,
+    attackerLevel: 0, attackerPosture: 'standing', attackerTerrain: 'clear',
+    targetLevel: 0, targetPosture: 'standing', targetTerrain: 'clear',
+    path: [],
+  },
+}
+
+const attackerMoves = [
+  ['Stationary', 0], ['Walked', 1], ['Ran', 2], ['Jumped', 3],
+]
+
+const targetMovementModifier = (hexes) => {
+  if (hexes >= 25) return 6
+  if (hexes >= 18) return 5
+  if (hexes >= 10) return 4
+  if (hexes >= 7) return 3
+  if (hexes >= 5) return 2
+  if (hexes >= 3) return 1
+  return 0
+}
+
+const heatModifier = (heat) => {
+  if (heat >= 24) return 4
+  if (heat >= 17) return 3
+  if (heat >= 13) return 2
+  if (heat >= 8) return 1
+  return 0
+}
+
+const hitProbability = (target) => {
+  if (target <= 2) return 100
+  if (target > 12) return 0
+  const outcomes = [0, 0, 1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1]
+  return Math.round((outcomes.slice(target).reduce((sum, value) => sum + value, 0) / 36) * 100)
+}
+
+function Toggle({ checked, onChange, label, detail, badge }) {
+  return (
+    <button type="button" onClick={() => onChange(!checked)} aria-pressed={checked}
+      className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${checked ? 'border-acid/45 bg-acid/[.07]' : 'border-line bg-[#0c110f] hover:border-[#3d4944]'}`}>
+      <span className={`grid h-5 w-5 shrink-0 place-items-center rounded border ${checked ? 'border-acid bg-acid text-ink' : 'border-[#4b5752]'}`}>
+        {checked && <span className="text-xs font-black">✓</span>}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium text-white">{label}</span>
+        {detail && <span className="mt-0.5 block text-[11px] leading-4 text-mist">{detail}</span>}
+      </span>
+      {badge && <span className="font-mono text-xs font-semibold text-acid">{badge}</span>}
+    </button>
+  )
+}
+
+function Stepper({ label, value, onChange, min = 0, max = 99, suffix = '', hint }) {
+  return (
+    <div>
+      <div className="mb-2 flex items-end justify-between gap-3">
+        <label className="text-xs font-medium text-[#c7cfcb]">{label}</label>
+        {hint && <span className="text-[10px] text-mist">{hint}</span>}
+      </div>
+      <div className="flex gap-2">
+        <button className="stepper-button" onClick={() => onChange(Math.max(min, Number(value) - 1))} aria-label={`Decrease ${label}`}>−</button>
+        <div className="flex h-11 flex-1 items-center justify-center rounded-xl border border-line bg-[#0c110f] font-mono text-sm font-semibold text-white">
+          {value}{suffix}
+        </div>
+        <button className="stepper-button" onClick={() => onChange(Math.min(max, Number(value) + 1))} aria-label={`Increase ${label}`}>+</button>
+      </div>
+    </div>
+  )
+}
+
+function Section({ code, title, subtitle, total, children }) {
+  return (
+    <section className="panel overflow-hidden">
+      <div className="flex items-center gap-3 border-b border-line px-4 py-3 sm:px-5">
+        <span className="grid h-8 w-8 place-items-center rounded-lg bg-acid font-display text-lg font-bold text-ink">{code}</span>
+        <div className="min-w-0 flex-1">
+          <h2 className="font-display text-lg font-semibold uppercase tracking-wide text-white">{title}</h2>
+          <p className="truncate text-[11px] text-mist">{subtitle}</p>
+        </div>
+        <span className={`font-mono text-sm font-semibold ${total === 0 ? 'text-mist' : 'text-acid'}`}>{total >= 0 ? '+' : ''}{total}</span>
+      </div>
+      <div className="space-y-4 p-4 sm:p-5">{children}</div>
+    </section>
+  )
+}
+
+function BreakdownRow({ label, value, base = false }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-1.5 text-sm">
+      <span className={base ? 'text-white' : 'text-mist'}>{label}</span>
+      <span className={`font-mono font-semibold ${base ? 'text-white' : value ? 'text-acid' : 'text-[#64706a]'}`}>{base ? value : `${value >= 0 ? '+' : ''}${value}`}</span>
+    </div>
+  )
+}
+
+const levelOptions = Array.from({ length: 11 }, (_, index) => index - 2)
+
+const levelLabel = (level) => {
+  if (Number(level) === -2) return '−2 · Depth 2 water'
+  if (Number(level) === -1) return '−1 · Depth 1 water'
+  return `${Number(level) > 0 ? '+' : ''}${level} · Level ${level}`
+}
+
+const terrainLabel = (terrain) => ({ clear: 'Clear', light: 'Light woods', heavy: 'Heavy woods', building: 'Building' }[terrain])
+
+function calculateLos(los) {
+  const attackerLevel = Number(los.attackerLevel)
+  const targetLevel = Number(los.targetLevel)
+  const attackerLos = attackerLevel + (los.attackerPosture === 'prone' ? 1 : 2)
+  const targetLos = targetLevel + (los.targetPosture === 'prone' ? 1 : 2)
+  const attackerSubmerged = attackerLevel <= -2
+  const targetSubmerged = targetLevel <= -2
+  let blocked = attackerSubmerged !== targetSubmerged
+  let reason = blocked ? 'Water surface blocks LOS between submerged and surface units.' : ''
+  let lightWoods = 0
+  let heavyWoods = 0
+
+  los.path.forEach((hex, index) => {
+    const ground = Number(hex.level)
+    const adjacentAttacker = index === 0
+    const adjacentTarget = index === los.path.length - 1
+    const intervenes = (height) => (
+      (height >= attackerLos && height >= targetLos)
+      || (adjacentAttacker && height >= attackerLos)
+      || (adjacentTarget && height >= targetLos)
+    )
+
+    if (!blocked && intervenes(ground)) {
+      blocked = true
+      reason = `Hill at path hex ${index + 1} blocks LOS.`
+      return
+    }
+
+    if (hex.terrain === 'building') {
+      const buildingTop = ground + Number(hex.buildingHeight || 1)
+      if (!blocked && intervenes(buildingTop)) {
+        blocked = true
+        reason = `Building at path hex ${index + 1} blocks LOS.`
+      }
+      return
+    }
+
+    if (hex.terrain === 'light' || hex.terrain === 'heavy') {
+      const treeTop = ground + 2
+      if (intervenes(treeTop)) {
+        if (hex.terrain === 'light') lightWoods += 1
+        if (hex.terrain === 'heavy') heavyWoods += 1
+      }
+    }
+  })
+
+  const woodsValue = lightWoods + (heavyWoods * 2)
+  if (!blocked && woodsValue > 2) {
+    blocked = true
+    reason = 'Intervening woods modifiers exceed +2 and block LOS.'
+  }
+
+  const targetWoods = los.targetTerrain === 'light' ? 1 : los.targetTerrain === 'heavy' ? 2 : 0
+  const lastHex = los.path.at(-1)
+  const lastHeight = lastHex
+    ? Number(lastHex.level) + (lastHex.terrain === 'building' ? Number(lastHex.buildingHeight || 1) : 0)
+    : null
+  const waterCover = targetLevel === -1 && los.targetPosture === 'standing'
+  const terrainCover = Boolean(
+    lastHex
+    && los.targetPosture === 'standing'
+    && lastHeight === targetLevel + 1
+    && attackerLos <= targetLos,
+  )
+  const partialCover = waterCover || terrainCover
+
+  return {
+    blocked,
+    reason,
+    attackerLos,
+    targetLos,
+    lightWoods,
+    heavyWoods,
+    targetWoods,
+    totalTerrainModifier: blocked ? null : woodsValue + targetWoods + (partialCover ? 1 : 0),
+    partialCover,
+    waterCover,
+  }
+}
+
+function LinkedBadge({ active }) {
+  return active ? <span className="ml-1.5 rounded border border-[#5d8f93]/35 bg-[#5d8f93]/10 px-1.5 py-0.5 font-mono text-[8px] uppercase tracking-wider text-[#8fc2c5]">LOS</span> : null
+}
+
+function EndpointCard({ title, level, posture, terrain, onChange, tone }) {
+  const underwater = Number(level) < 0
+  const toneClass = tone === 'attacker'
+    ? '!border-[#315343] !bg-[#101d17]'
+    : '!border-[#593633] !bg-[#201313]'
+  return (
+    <div className={`panel p-4 sm:p-5 ${toneClass}`}>
+      <p className="eyebrow">{title}</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+        <div><label className="field-label">Level / depth</label><select className="select" value={level} onChange={(e) => onChange('level', Number(e.target.value))}>{levelOptions.map((item) => <option key={item} value={item}>{levelLabel(item)}</option>)}</select></div>
+        <div><label className="field-label">Posture</label><select className="select" value={posture} onChange={(e) => onChange('posture', e.target.value)}><option value="standing">Standing</option><option value="prone">Prone</option></select></div>
+        <div><label className="field-label">Occupied terrain</label><select className="select" value={underwater ? 'clear' : terrain} disabled={underwater} onChange={(e) => onChange('terrain', e.target.value)}><option value="clear">{underwater ? 'Water' : 'Clear'}</option><option value="light">Light woods</option><option value="heavy">Heavy woods</option></select></div>
+      </div>
+    </div>
+  )
+}
+
+function LosView({ los, result, updateLos, updateEndpoint, updatePathHex, resetLos }) {
+  return (
+    <main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:py-8">
+      <div className="order-2 space-y-4 lg:order-1">
+        <div className="mb-6">
+          <p className="eyebrow">A Game of Armored Combat // Line of sight</p>
+          <h1 className="mt-2 font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Trace the line.<br/><span className="text-acid">Know the shot.</span></h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-mist">Enter the chosen center-to-center path. Clear Level 0 is the default, so only unusual hexes need attention.</p>
+        </div>
+
+        <div className="panel p-4 sm:p-5">
+          <Stepper label="Distance to target" value={los.distance} min={1} max={30} suffix={Number(los.distance) === 1 ? ' hex' : ' hexes'} hint={`${Math.max(0, los.distance - 1)} intervening`} onChange={(value) => updateLos('distance', value)} />
+          <p className="mt-3 text-[11px] leading-4 text-mist">Distance is informational in this version. Select the weapon’s range bracket manually in the Targeting Computer.</p>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <EndpointCard title="Attacker hex" tone="attacker" level={los.attackerLevel} posture={los.attackerPosture} terrain={los.attackerTerrain} onChange={(key, value) => updateEndpoint('attacker', key, value)} />
+          <EndpointCard title="Target hex" tone="target" level={los.targetLevel} posture={los.targetPosture} terrain={los.targetTerrain} onChange={(key, value) => updateEndpoint('target', key, value)} />
+        </div>
+
+        <section className="panel overflow-hidden">
+          <div className="border-b border-line px-4 py-4 sm:px-5">
+            <div className="flex items-center justify-between gap-4"><div><p className="eyebrow">Chosen path</p><h2 className="mt-1 font-display text-xl font-semibold uppercase tracking-wide">Intervening hexes</h2></div><span className="font-mono text-xs text-mist">{los.path.length}</span></div>
+          </div>
+          <div className="p-4 sm:p-5">
+            {los.path.length === 0 ? <p className="rounded-xl border border-acid/20 bg-acid/[.05] px-4 py-4 text-sm text-[#cfd9d4]">Adjacent units have no intervening hexes.</p> : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {los.path.map((hex, index) => (
+                  <div key={index} className={`rounded-xl border p-3 ${index % 2 === 0 ? 'bg-[#0c110f]' : 'bg-[#171c1a]'} ${hex.terrain === 'clear' && Number(hex.level) === 0 ? 'border-line' : 'border-[#5d8f93]/50 ring-1 ring-inset ring-[#5d8f93]/10'}`}>
+                    <div className="mb-2 flex items-center justify-between"><span className="font-display text-sm font-bold uppercase tracking-wider text-white">Hex {index + 1}</span><span className="font-mono text-[9px] uppercase text-mist">{terrainLabel(hex.terrain)} · {levelLabel(hex.level).split(' · ')[0]}</span></div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <select aria-label={`Hex ${index + 1} level`} className="select" value={hex.level} onChange={(e) => updatePathHex(index, 'level', Number(e.target.value))}>{levelOptions.map((item) => <option key={item} value={item}>{levelLabel(item)}</option>)}</select>
+                      <select aria-label={`Hex ${index + 1} terrain`} className="select" value={hex.terrain} onChange={(e) => updatePathHex(index, 'terrain', e.target.value)}><option value="clear">Clear</option><option value="light">Light woods</option><option value="heavy">Heavy woods</option><option value="building">Building</option></select>
+                    </div>
+                    {hex.terrain === 'building' && <div className="mt-2"><label className="field-label">Building height</label><select className="select" value={hex.buildingHeight || 1} onChange={(e) => updatePathHex(index, 'buildingHeight', Number(e.target.value))}>{[1,2,3,4,5,6].map((height) => <option key={height} value={height}>{height} level{height === 1 ? '' : 's'}</option>)}</select></div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className={`panel overflow-hidden ${result.blocked ? 'border-ember/35 shadow-[0_0_36px_rgba(255,122,69,.12)]' : 'border-acid/30 shadow-glow'}`}>
+          <div className="p-5 text-center sm:p-6">
+            <p className="eyebrow">LOS solution</p>
+            <div className={`mt-2 font-display text-5xl font-bold uppercase tracking-tight ${result.blocked ? 'text-ember drop-shadow-[0_0_14px_rgba(255,122,69,.4)]' : 'text-acid drop-shadow-[0_0_14px_rgba(214,255,56,.25)]'}`}>{result.blocked ? 'Blocked' : 'Clear'}</div>
+            <p className="mx-auto mt-3 max-w-lg text-xs leading-5 text-mist">{result.blocked ? result.reason : 'Valid line of sight. Terrain data is linked to the Targeting Computer.'}</p>
+            {!result.blocked && <div className="mx-auto mt-4 max-w-sm rounded-xl border border-[#5d8f93]/25 bg-[#5d8f93]/[.07] px-3 py-3 font-mono text-[10px] uppercase tracking-wider text-[#8fc2c5]">Synced to targeting · +{result.totalTerrainModifier}</div>}
+          </div>
+        </section>
+      </div>
+
+      <aside id="los-solution" className="order-1 scroll-mt-4 lg:order-2 lg:sticky lg:top-5">
+        <div className={`panel overflow-hidden ${result.blocked ? 'border-ember/35 shadow-[0_0_42px_rgba(255,122,69,.16)]' : 'border-acid/30 shadow-glow'}`}>
+          <div className="border-b border-line bg-[#0c110f] px-5 py-4"><p className="eyebrow">LOS solution</p></div>
+          <div className="p-5 text-center sm:p-6">
+            <div className={`font-display text-5xl font-bold uppercase tracking-tight ${result.blocked ? 'text-ember drop-shadow-[0_0_14px_rgba(255,122,69,.4)]' : 'text-acid drop-shadow-[0_0_14px_rgba(214,255,56,.25)]'}`}>{result.blocked ? 'Blocked' : 'Clear'}</div>
+            <p className="mx-auto mt-3 max-w-xs text-xs leading-5 text-mist">{result.blocked ? result.reason : 'Valid line of sight. Terrain data is linked to the Targeting Computer.'}</p>
+            <div className="mt-5 divide-y divide-line border-y border-line py-2 text-left">
+              <BreakdownRow label="Attacker LOS level" value={result.attackerLos} base />
+              <BreakdownRow label="Target LOS level" value={result.targetLos} base />
+              <BreakdownRow label="Intervening light woods" value={result.lightWoods} />
+              <BreakdownRow label="Intervening heavy woods" value={result.heavyWoods} />
+              <BreakdownRow label="Target woods" value={result.targetWoods} />
+              <BreakdownRow label="Partial cover" value={result.partialCover ? 1 : 0} />
+            </div>
+            {!result.blocked && <div className="mt-4 rounded-xl border border-[#5d8f93]/25 bg-[#5d8f93]/[.07] px-3 py-3 font-mono text-[10px] uppercase tracking-wider text-[#8fc2c5]">Synced to targeting · +{result.totalTerrainModifier}</div>}
+            <button onClick={resetLos} className="mt-4 h-11 w-full rounded-xl border border-line bg-[#0c110f] font-display text-xs font-bold uppercase tracking-[.14em] text-mist transition hover:border-acid/40 hover:text-white">Reset LOS</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+  )
+}
+
+function App() {
+  const [state, setState] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}
+      return {
+        ...initialState,
+        ...saved,
+        los: { ...initialState.los, ...(saved.los || {}), path: Array.isArray(saved.los?.path) ? saved.los.path : [] },
+        losLinked: { ...initialState.losLinked, ...(saved.losLinked || {}) },
+      }
+    } catch { return initialState }
+  })
+  const [showBreakdown, setShowBreakdown] = useState(false)
+  const [activeView, setActiveView] = useState('targeting')
+  const touchStart = useRef(null)
+
+  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }, [state])
+
+  const set = (key, value) => setState((current) => ({
+    ...current,
+    [key]: value,
+    losLinked: Object.hasOwn(current.losLinked, key) ? { ...current.losLinked, [key]: false } : current.losLinked,
+  }))
+
+  const losResult = useMemo(() => calculateLos(state.los), [state.los])
+
+  useEffect(() => {
+    if (!state.losActive) return
+    const lightWoods = losResult.lightWoods + (state.los.targetTerrain === 'light' ? 1 : 0)
+    const heavyWoods = losResult.heavyWoods + (state.los.targetTerrain === 'heavy' ? 1 : 0)
+    const depthOneWater = losResult.waterCover
+    const partialCover = losResult.partialCover && !depthOneWater
+    setState((current) => {
+      if (
+        current.lightWoods === lightWoods
+        && current.heavyWoods === heavyWoods
+        && current.depthOneWater === depthOneWater
+        && current.partialCover === partialCover
+        && current.losBlocked === losResult.blocked
+        && Object.values(current.losLinked).every(Boolean)
+      ) return current
+      return {
+        ...current,
+        lightWoods,
+        heavyWoods,
+        depthOneWater,
+        partialCover,
+        losBlocked: losResult.blocked,
+        losLinked: { lightWoods: true, heavyWoods: true, partialCover: true, depthOneWater: true },
+      }
+    })
+  }, [losResult.blocked, losResult.heavyWoods, losResult.lightWoods, losResult.partialCover, losResult.waterCover, state.los.targetTerrain, state.losActive])
+
+  const updateLos = (key, value) => setState((current) => {
+    if (key !== 'distance') return { ...current, losActive: true, los: { ...current.los, [key]: value } }
+    const pathLength = Math.max(0, Number(value) - 1)
+    const path = Array.from({ length: pathLength }, (_, index) => current.los.path[index] || { level: 0, terrain: 'clear', buildingHeight: 1 })
+    return { ...current, losActive: true, los: { ...current.los, distance: value, path } }
+  })
+
+  const updateEndpoint = (endpoint, key, value) => setState((current) => {
+    const prefix = endpoint === 'attacker' ? 'attacker' : 'target'
+    const nextLos = { ...current.los, [`${prefix}${key[0].toUpperCase()}${key.slice(1)}`]: value }
+    if (key === 'level' && Number(value) < 0) nextLos[`${prefix}Terrain`] = 'clear'
+    return { ...current, losActive: true, los: nextLos }
+  })
+
+  const updatePathHex = (index, key, value) => setState((current) => ({
+    ...current,
+    losActive: true,
+    los: { ...current.los, path: current.los.path.map((hex, hexIndex) => hexIndex === index ? { ...hex, [key]: value } : hex) },
+  }))
+
+  const resetLos = () => setState((current) => ({ ...current, los: initialState.los, losActive: true, losBlocked: false }))
+
+  const handleTouchEnd = (event) => {
+    if (touchStart.current === null) return
+    const delta = event.changedTouches[0].clientX - touchStart.current
+    if (delta < -70) setActiveView('targeting')
+    if (delta > 70) setActiveView('los')
+    touchStart.current = null
+  }
+
+  const mods = useMemo(() => {
+    const gunnery = Number(state.gunnery)
+    const attacker = Number(state.attackerMove) + (state.attackerProne ? 2 : 0) + (Number(state.sensorHits) * 2) + Number(state.armDamage) + heatModifier(Number(state.heat))
+    const targetMovement = state.targetState === 'immobile' ? 0 : targetMovementModifier(Number(state.targetHexes)) + (state.targetJumped ? 1 : 0)
+    const targetCondition = state.targetState === 'immobile' ? -4 : state.targetState === 'prone-adjacent' ? -2 : state.targetState === 'prone-distant' ? 1 : 0
+    const target = targetMovement + targetCondition
+    const terrain = Number(state.lightWoods) + Number(state.heavyWoods) * 2 + (state.partialCover ? 1 : 0) + (state.depthOneWater ? 1 : 0)
+    const tactical = state.targetType === 'secondary-front' ? 1 : state.targetType === 'secondary-side' ? 2 : 0
+    const indirect = state.indirect === 'standard' ? 1 : state.indirect === 'spotter-fired' ? 2 : 0
+    const other = terrain + tactical + indirect + Number(state.customModifier)
+    const rangeBase = state.range === 'medium' ? 2 : state.range === 'long' ? 4 : 0
+    const minimum = state.range === 'minimum' ? Math.max(0, Number(state.minimumRange) - Number(state.distance) + 1) : 0
+    const range = rangeBase + minimum
+    return { gunnery, attacker, target, other, range, targetMovement, targetCondition, terrain, tactical, indirect, minimum }
+  }, [state])
+
+  const targetNumber = Object.values({ g: mods.gunnery, a: mods.attacker, t: mods.target, o: mods.other, r: mods.range }).reduce((a, b) => a + b, 0)
+  const probability = hitProbability(targetNumber)
+  const impossible = targetNumber > 12
+  const auto = targetNumber <= 2
+  const noLos = state.losBlocked
+
+  const resetShot = () => setState((current) => ({ ...initialState, pilotName: current.pilotName, mechName: current.mechName, gunnery: current.gunnery }))
+
+  return (
+    <div className="relative min-h-screen">
+      <header className="border-b border-line/70 bg-ink/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            <div className="relative h-10 w-10 overflow-hidden rounded-xl border border-acid/30 bg-acid/[.08]">
+              <div className="absolute left-2 top-2 h-6 w-6 rotate-45 border-2 border-acid" />
+              <div className="absolute left-[17px] top-1 h-8 w-1 bg-acid" />
+            </div>
+            <div>
+              <p className="font-display text-xl font-bold uppercase leading-none tracking-[.14em] text-white">GATOR</p>
+              <p className="mt-1 font-mono text-[9px] uppercase tracking-[.18em] text-mist">Targeting computer // CBT</p>
+            </div>
+          </div>
+          <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-mist sm:flex">
+            <span className="h-1.5 w-1.5 rounded-full bg-acid shadow-[0_0_10px_#d6ff38]" />
+            Local save active
+          </div>
+        </div>
+      </header>
+
+      <section className="mx-auto max-w-7xl px-3 pt-3 sm:px-6 sm:pt-5" aria-label="GATOR battlefield banner">
+        <div className="relative overflow-hidden rounded-xl border border-[#4c514d] bg-panel shadow-[0_18px_60px_rgba(0,0,0,.35)] sm:rounded-2xl">
+          <img
+            src="/assets/gator-banner.jpg"
+            alt="GATOR rendered in armored steel across a BattleTech battlefield"
+            className="h-[148px] w-full object-cover object-center sm:h-auto sm:aspect-[3.35/1]"
+          />
+          <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/10" />
+          <div className="absolute bottom-2.5 right-3 rounded-md border border-white/10 bg-black/65 px-2 py-1 font-mono text-[8px] uppercase tracking-[.16em] text-white/70 backdrop-blur-sm sm:bottom-4 sm:right-4 sm:text-[9px]">
+            AGOAC fire control
+          </div>
+        </div>
+      </section>
+
+      <nav className="mx-auto mt-4 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
+        <div className="grid w-full max-w-md grid-cols-2 rounded-xl border border-line bg-panel/80 p-1">
+          <button type="button" onClick={() => setActiveView('los')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'los' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Line of sight</button>
+          <button type="button" onClick={() => setActiveView('targeting')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'targeting' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Targeting</button>
+        </div>
+      </nav>
+
+      <div onTouchStart={(event) => { touchStart.current = event.touches[0].clientX }} onTouchEnd={handleTouchEnd}>
+      {activeView === 'targeting' ? (
+      <main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:py-8">
+        <div className="order-2 space-y-4 lg:order-1">
+          <div className="mb-6">
+            <p className="eyebrow">A Game of Armored Combat // Weapon attacks</p>
+            <h1 className="mt-2 max-w-2xl font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Lock the shot.<br/><span className="text-acid">Skip the math.</span></h1>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-mist">Set the situation below. Your live 2D6 target number, odds, and complete GATOR breakdown stay ready at the table.</p>
+          </div>
+
+          <Section code="G" title="Gunnery" subtitle="Base skill" total={mods.gunnery}>
+            <div className="grid gap-4 sm:grid-cols-[1fr_1fr_160px]">
+              <div><label className="field-label">Pilot / callsign</label><input className="select bg-none pr-3" value={state.pilotName} onChange={(e) => set('pilotName', e.target.value)} placeholder="Optional" /></div>
+              <div><label className="field-label">BattleMech</label><input className="select bg-none pr-3" value={state.mechName} onChange={(e) => set('mechName', e.target.value)} placeholder="Optional" /></div>
+              <div><label className="field-label">Gunnery skill</label><select className="select" value={state.gunnery} onChange={(e) => set('gunnery', Number(e.target.value))}>{[0,1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n}{n === 4 ? ' — Standard' : ''}</option>)}</select></div>
+            </div>
+          </Section>
+
+          <Section code="A" title="Attacker" subtitle="Movement, damage & heat" total={mods.attacker}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><label className="field-label">Movement mode</label><select className="select" value={state.attackerMove} onChange={(e) => set('attackerMove', Number(e.target.value))}>{attackerMoves.map(([label, value]) => <option key={label} value={value}>{label} {value ? `(+${value})` : '(+0)'}</option>)}</select></div>
+              <div><label className="field-label">Heat level</label><select className="select" value={state.heat} onChange={(e) => set('heat', Number(e.target.value))}><option value="0">0–7 (+0)</option><option value="8">8–12 (+1)</option><option value="13">13–16 (+2)</option><option value="17">17–23 (+3)</option><option value="24">24+ (+4)</option></select></div>
+              <Toggle checked={state.attackerProne} onChange={(v) => set('attackerProne', v)} label="Attacker is prone" detail="Weapon attacks while prone" badge="+2" />
+              <div><label className="field-label">Sensor hits</label><select className="select" value={state.sensorHits} onChange={(e) => set('sensorHits', Number(e.target.value))}><option value="0">None (+0)</option><option value="1">1 hit (+2)</option><option value="2">2 hits (+4)</option></select></div>
+            </div>
+            <div><label className="field-label">Firing arm damage</label><select className="select" value={state.armDamage} onChange={(e) => set('armDamage', Number(e.target.value))}><option value="0">None / torso weapon (+0)</option><option value="1">1 actuator hit (+1)</option><option value="2">2 actuator hits (+2)</option><option value="4">Shoulder hit (+4, ignore other arm actuators)</option></select></div>
+          </Section>
+
+          <Section code="T" title="Target" subtitle="Movement & condition" total={mods.target}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Stepper label="Hexes moved" value={state.targetHexes} onChange={(v) => set('targetHexes', v)} max={40} hint={`TMM +${targetMovementModifier(state.targetHexes)}`} />
+              <div><label className="field-label">Target condition</label><select className="select" value={state.targetState} onChange={(e) => set('targetState', e.target.value)}><option value="normal">Standing / normal (+0)</option><option value="prone-adjacent">Prone, adjacent (−2)</option><option value="prone-distant">Prone, not adjacent (+1)</option><option value="immobile">Immobile (−4, ignores TMM)</option></select></div>
+            </div>
+            <Toggle checked={state.targetJumped} onChange={(v) => set('targetJumped', v)} label="Target jumped" detail="Added to the modifier from hexes moved" badge="+1" />
+            {(state.targetState === 'prone-adjacent' || state.targetState === 'prone-distant') && <p className="rounded-lg border border-ember/20 bg-ember/[.06] px-3 py-2 text-[11px] leading-4 text-[#d9b7a8]">A prone target keeps the TMM it earned earlier in the turn. The prone modifier is added separately.</p>}
+          </Section>
+
+          <Section code="O" title="Other" subtitle="Terrain & tactical conditions" total={mods.other}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Stepper label={<span>Light woods<LinkedBadge active={state.losLinked.lightWoods} /></span>} value={state.lightWoods} onChange={(v) => set('lightWoods', v)} max={5} suffix=" hex" hint="+1 each" />
+              <Stepper label={<span>Heavy woods<LinkedBadge active={state.losLinked.heavyWoods} /></span>} value={state.heavyWoods} onChange={(v) => set('heavyWoods', v)} max={3} suffix=" hex" hint="+2 each" />
+              <Toggle checked={state.partialCover} onChange={(v) => setState((current) => ({ ...current, partialCover: v, depthOneWater: v ? false : current.depthOneWater, losLinked: { ...current.losLinked, partialCover: false, depthOneWater: false } }))} label={<span>Partial cover<LinkedBadge active={state.losLinked.partialCover} /></span>} detail="Target partially obscured" badge="+1" />
+              <Toggle checked={state.depthOneWater} onChange={(v) => setState((current) => ({ ...current, depthOneWater: v, partialCover: v ? false : current.partialCover, losLinked: { ...current.losLinked, partialCover: false, depthOneWater: false } }))} label={<span>Target in depth 1 water<LinkedBadge active={state.losLinked.depthOneWater} /></span>} detail="Counts as partial cover; options are mutually exclusive" badge="+1" />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><label className="field-label">Multiple targets</label><select className="select" value={state.targetType} onChange={(e) => set('targetType', e.target.value)}><option value="primary">Primary target (+0)</option><option value="secondary-front">Secondary, front arc (+1)</option><option value="secondary-side">Secondary, side / rear arc (+2)</option></select></div>
+              <div><label className="field-label">Indirect fire</label><select className="select" value={state.indirect} onChange={(e) => set('indirect', e.target.value)}><option value="none">Direct fire (+0)</option><option value="standard">Indirect fire (+1)</option><option value="spotter-fired">Indirect; spotter also attacked (+2)</option></select></div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[1fr_150px]">
+              <div><label className="field-label">Custom modifier label</label><input className="select bg-none pr-3" value={state.customLabel} onChange={(e) => set('customLabel', e.target.value)} placeholder="Targeting computer, weather, house rule…" /></div>
+              <div><label className="field-label">Modifier</label><select className="select" value={state.customModifier} onChange={(e) => set('customModifier', Number(e.target.value))}>{[-4,-3,-2,-1,0,1,2,3,4,5,6].map(n => <option key={n} value={n}>{n > 0 ? '+' : ''}{n}</option>)}</select></div>
+            </div>
+          </Section>
+
+          <Section code="R" title="Range" subtitle="Weapon range bracket" total={mods.range}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><label className="field-label">Range bracket</label><select className="select" value={state.range} onChange={(e) => set('range', e.target.value)}><option value="short">Short (+0)</option><option value="medium">Medium (+2)</option><option value="long">Long (+4)</option><option value="minimum">Inside minimum range (calculate)</option></select></div>
+              {state.range === 'minimum' && <div className="grid grid-cols-2 gap-3"><Stepper label="Min. range" value={state.minimumRange} onChange={(v) => set('minimumRange', v)} max={30} /><Stepper label="Distance" value={state.distance} onChange={(v) => set('distance', v)} min={1} max={30} /></div>}
+            </div>
+            {state.range === 'minimum' && <p className="font-mono text-[11px] text-mist">Formula: minimum range − target distance + 1 = <span className="text-acid">+{mods.minimum}</span></p>}
+          </Section>
+        </div>
+
+        <aside id="target-solution" className="order-1 scroll-mt-4 lg:order-2 lg:sticky lg:top-5">
+          <div className={`panel overflow-hidden transition-shadow duration-300 ${noLos || impossible ? 'border-ember/35 shadow-[0_0_42px_rgba(255,122,69,.16)]' : auto ? 'border-acid/40 shadow-[0_0_48px_rgba(214,255,56,.2)]' : 'border-acid/20 shadow-glow'}`}>
+            <div className="border-b border-line bg-[#0c110f] px-5 py-4">
+              <div className="flex items-center justify-between">
+                <div><p className="eyebrow">Fire control solution</p><p className="mt-1 text-xs text-mist">{state.mechName || 'Unassigned unit'}{state.pilotName ? ` // ${state.pilotName}` : ''}</p></div>
+                <span className={`h-2.5 w-2.5 rounded-full ${noLos || impossible ? 'bg-ember shadow-[0_0_12px_#ff7a45]' : 'bg-acid shadow-[0_0_12px_#d6ff38]'}`} />
+              </div>
+            </div>
+            <div className="p-5 sm:p-6">
+              <div key={`${targetNumber}-${noLos}`} className="result-pop text-center">
+                <p className="eyebrow">2D6 target number</p>
+                <div className={`mt-1 font-display text-[92px] font-bold leading-none tracking-[-.07em] ${noLos || impossible ? 'text-ember' : 'text-white'}`}>{noLos ? '—' : targetNumber}</div>
+                <p className={`mt-2 font-mono font-semibold uppercase ${noLos || impossible || auto ? 'text-lg tracking-[.2em] drop-shadow-[0_0_12px_currentColor] sm:text-xl' : 'text-xs tracking-[.18em]'} ${noLos || impossible ? 'text-ember' : 'text-acid'}`}>
+                  {noLos ? 'No line of sight' : impossible ? 'Automatic miss' : auto ? 'Automatic hit' : `${probability}% chance to hit`}
+                </p>
+              </div>
+
+              <div className="mt-6 grid grid-cols-5 gap-1.5">
+                {[['G', mods.gunnery], ['A', mods.attacker], ['T', mods.target], ['O', mods.other], ['R', mods.range]].map(([code, value]) => (
+                  <div key={code} className="rounded-xl border border-line bg-[#0c110f] px-1 py-3 text-center">
+                    <div className="font-display text-sm font-bold text-acid">{code}</div>
+                    <div className="mt-1 font-mono text-xs font-semibold text-white">{code === 'G' ? value : `${value >= 0 ? '+' : ''}${value}`}</div>
+                  </div>
+                ))}
+              </div>
+
+              <button onClick={() => setShowBreakdown(!showBreakdown)} className="mt-4 flex w-full items-center justify-between border-y border-line py-3 text-left text-xs font-semibold text-[#c7cfcb]">
+                Full breakdown <span className={`text-mist transition ${showBreakdown ? 'rotate-180' : ''}`}>⌄</span>
+              </button>
+              {showBreakdown && <div className="border-b border-line py-3">
+                <BreakdownRow label="Gunnery skill" value={mods.gunnery} base />
+                <BreakdownRow label="Attacker movement, damage & heat" value={mods.attacker} />
+                <BreakdownRow label="Target movement" value={mods.targetMovement} />
+                <BreakdownRow label="Target condition" value={mods.targetCondition} />
+                <BreakdownRow label="Terrain" value={mods.terrain} />
+                <BreakdownRow label="Multiple target" value={mods.tactical} />
+                <BreakdownRow label="Indirect fire" value={mods.indirect} />
+                {state.customModifier !== 0 && <BreakdownRow label={state.customLabel || 'Custom modifier'} value={Number(state.customModifier)} />}
+                <BreakdownRow label="Range" value={mods.range} />
+              </div>}
+
+              <button onClick={resetShot} className="mt-5 h-12 w-full rounded-xl bg-acid font-display text-sm font-bold uppercase tracking-[.14em] text-ink transition hover:bg-[#e2ff78] active:scale-[.98]">Clear shot data</button>
+              <p className="mt-3 text-center text-[10px] leading-4 text-[#68736e]">Keeps pilot, ’Mech, and gunnery skill. All settings save on this device.</p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-line/70 px-4 py-3 text-[10px] leading-4 text-[#68736e]">
+            Built for BattleMech weapon attacks using A Game of Armored Combat. Always defer to your current printing and scenario-specific rules.
+          </div>
+        </aside>
+      </main>
+      ) : (
+        <LosView los={state.los} result={losResult} updateLos={updateLos} updateEndpoint={updateEndpoint} updatePathHex={updatePathHex} resetLos={resetLos} />
+      )}
+      </div>
+      {activeView === 'targeting' && <button
+        type="button"
+        onClick={() => document.getElementById('target-solution')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        className="fixed bottom-4 right-4 z-20 grid h-11 w-11 place-items-center rounded-full border border-acid/35 bg-[#111715]/95 text-acid shadow-[0_8px_30px_rgba(0,0,0,.5)] backdrop-blur-md transition hover:border-acid hover:bg-[#17201c] hover:shadow-[0_0_22px_rgba(214,255,56,.16)] active:scale-95 sm:bottom-6 sm:right-6"
+        aria-label="Scroll to target number"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m6 11 6-6 6 6" />
+          <path d="m6 18 6-6 6 6" />
+        </svg>
+      </button>}
+      {activeView === 'los' && <button
+        type="button"
+        onClick={() => document.getElementById('los-solution')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        className="fixed bottom-4 right-4 z-20 grid h-11 w-11 place-items-center rounded-full border border-acid/35 bg-[#111715]/95 text-acid shadow-[0_8px_30px_rgba(0,0,0,.5)] backdrop-blur-md transition hover:border-acid hover:bg-[#17201c] hover:shadow-[0_0_22px_rgba(214,255,56,.16)] active:scale-95 sm:bottom-6 sm:right-6"
+        aria-label="Scroll to LOS solution"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m6 11 6-6 6 6" />
+          <path d="m6 18 6-6 6 6" />
+        </svg>
+      </button>}
+      <footer className="mx-auto max-w-7xl px-4 pb-8 pt-2 text-center font-mono text-[9px] uppercase tracking-widest text-[#4f5a55] sm:px-6">Unofficial fan-made play aid · BattleTech is a trademark of The Topps Company, Inc.</footer>
+    </div>
+  )
+}
+
+export default App
