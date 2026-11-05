@@ -7,7 +7,8 @@
     "dev": "vite --port 3000",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "eslint ."
+    "check": "eslint .",
+    "test": "node --test"
   },
   "dependencies": {
     "react": "^19.1.1",

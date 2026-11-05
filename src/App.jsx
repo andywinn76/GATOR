@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { calculateQuickStartModifiers, heatModifier, hitProbability, targetMovementModifier, totalTargetNumber } from './rules.js'
 
 const STORAGE_KEY = 'gator-battletech-v1'
 
 const initialState = {
+  ruleset: 'agoac',
   pilotName: '', mechName: '', gunnery: 4,
   attackerMove: 0, attackerProne: false, sensorHits: 0, armDamage: 0, heat: 0,
   targetHexes: 0, targetJumped: false, targetState: 'normal',
@@ -18,36 +20,20 @@ const initialState = {
     targetLevel: 0, targetPosture: 'standing', targetTerrain: 'clear',
     path: [],
   },
+  quickStart: {
+    pilotName: '', mechName: '', gunnery: 4,
+    attackerMove: 0, targetHexes: 0, targetJumped: false,
+    pulseLaser: false, lightWoods: 0, heavyWoods: 0, targetTerrain: 'clear',
+    range: 'short', customModifier: 0, customLabel: '',
+    losBlocked: false, losActive: false,
+    losLinked: { lightWoods: false, heavyWoods: false, targetTerrain: false },
+    los: { distance: 1, targetTerrain: 'clear', path: [] },
+  },
 }
 
 const attackerMoves = [
   ['Stationary', 0], ['Walked', 1], ['Ran', 2], ['Jumped', 3],
 ]
-
-const targetMovementModifier = (hexes) => {
-  if (hexes >= 25) return 6
-  if (hexes >= 18) return 5
-  if (hexes >= 10) return 4
-  if (hexes >= 7) return 3
-  if (hexes >= 5) return 2
-  if (hexes >= 3) return 1
-  return 0
-}
-
-const heatModifier = (heat) => {
-  if (heat >= 24) return 4
-  if (heat >= 17) return 3
-  if (heat >= 13) return 2
-  if (heat >= 8) return 1
-  return 0
-}
-
-const hitProbability = (target) => {
-  if (target <= 2) return 100
-  if (target > 12) return 0
-  const outcomes = [0, 0, 1, 2, 3, 4, 5, 6, 5, 4, 3, 2, 1]
-  return Math.round((outcomes.slice(target).reduce((sum, value) => sum + value, 0) / 36) * 100)
-}
 
 function Toggle({ checked, onChange, label, detail, badge }) {
   return (
@@ -65,7 +51,8 @@ function Toggle({ checked, onChange, label, detail, badge }) {
   )
 }
 
-function Stepper({ label, value, onChange, min = 0, max = 99, suffix = '', hint }) {
+function Stepper({ label, value, onChange, min = 0, max = 99, suffix = '', hint, ariaLabel }) {
+  const accessibleLabel = ariaLabel || (typeof label === 'string' ? label : 'Value')
   return (
     <div>
       <div className="mb-2 flex items-end justify-between gap-3">
@@ -73,11 +60,11 @@ function Stepper({ label, value, onChange, min = 0, max = 99, suffix = '', hint 
         {hint && <span className="text-[10px] text-mist">{hint}</span>}
       </div>
       <div className="flex gap-2">
-        <button className="stepper-button" onClick={() => onChange(Math.max(min, Number(value) - 1))} aria-label={`Decrease ${label}`}>−</button>
+        <button className="stepper-button" onClick={() => onChange(Math.max(min, Number(value) - 1))} aria-label={`Decrease ${accessibleLabel}`}>−</button>
         <div className="flex h-11 flex-1 items-center justify-center rounded-xl border border-line bg-[#0c110f] font-mono text-sm font-semibold text-white">
           {value}{suffix}
         </div>
-        <button className="stepper-button" onClick={() => onChange(Math.min(max, Number(value) + 1))} aria-label={`Increase ${label}`}>+</button>
+        <button className="stepper-button" onClick={() => onChange(Math.min(max, Number(value) + 1))} aria-label={`Increase ${accessibleLabel}`}>+</button>
       </div>
     </div>
   )
@@ -294,6 +281,117 @@ function LosView({ los, result, updateLos, updateEndpoint, updatePathHex, resetL
   )
 }
 
+function calculateQuickStartLos(los) {
+  const lightWoods = los.path.filter((hex) => hex.terrain === 'light').length
+  const heavyWoods = los.path.filter((hex) => hex.terrain === 'heavy').length
+  const woodsPoints = lightWoods + (heavyWoods * 2)
+  const targetWoods = los.targetTerrain === 'light' ? 1 : los.targetTerrain === 'heavy' ? 2 : 0
+  return {
+    blocked: woodsPoints > 2,
+    reason: woodsPoints > 2 ? 'Three or more points of intervening woods block LOS.' : '',
+    lightWoods,
+    heavyWoods,
+    targetTerrain: los.targetTerrain,
+    targetWoods,
+    woodsPoints,
+    totalTerrainModifier: woodsPoints + targetWoods,
+  }
+}
+
+function QuickStartLosView({ data, result, updateDistance, updateTargetTerrain, updatePathHex, resetLos }) {
+  const los = data.los
+  const status = (
+    <div className="p-5 text-center sm:p-6">
+      <p className="eyebrow">Quick-Start LOS solution</p>
+      <div className={`mt-2 font-display text-5xl font-bold uppercase tracking-tight ${result.blocked ? 'text-ember drop-shadow-[0_0_14px_rgba(255,122,69,.4)]' : 'text-acid drop-shadow-[0_0_14px_rgba(214,255,56,.25)]'}`}>{result.blocked ? 'Blocked' : 'Clear'}</div>
+      <p className="mx-auto mt-3 max-w-lg text-xs leading-5 text-mist">{result.blocked ? result.reason : 'Valid line of sight. Woods data is linked to the Quick-Start Targeting Computer.'}</p>
+      {!result.blocked && <div className="mx-auto mt-4 max-w-sm rounded-xl border border-[#5d8f93]/25 bg-[#5d8f93]/[.07] px-3 py-3 font-mono text-[10px] uppercase tracking-wider text-[#8fc2c5]">Synced to targeting · +{result.totalTerrainModifier}</div>}
+    </div>
+  )
+
+  return (
+    <main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:py-8">
+      <div className="order-2 space-y-4 lg:order-1">
+        <div className="mb-6">
+          <p className="eyebrow">Quick-Start Rules // Line of sight</p>
+          <h1 className="mt-2 font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Trace the woods.<br/><span className="text-acid">Know the shot.</span></h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-mist">Quick-Start LOS only counts intervening woods. Clear is the default, and other ’Mechs never affect LOS.</p>
+        </div>
+
+        <div className="panel p-4 sm:p-5">
+          <Stepper label="Distance to target" value={los.distance} min={1} max={30} suffix={Number(los.distance) === 1 ? ' hex' : ' hexes'} hint={`${Math.max(0, los.distance - 1)} intervening`} onChange={updateDistance} />
+          <p className="mt-3 text-[11px] leading-4 text-mist">Distance helps build the chosen path. Select the weapon’s range bracket manually in Targeting.</p>
+        </div>
+
+        <div className="panel !border-[#593633] !bg-[#201313] p-4 sm:p-5">
+          <p className="eyebrow">Target hex</p>
+          <div className="mt-3"><label className="field-label">Occupied terrain</label><select className="select" value={los.targetTerrain} onChange={(event) => updateTargetTerrain(event.target.value)}><option value="clear">Clear</option><option value="light">Light woods (+1)</option><option value="heavy">Heavy woods (+2)</option></select></div>
+          <p className="mt-3 text-[11px] leading-4 text-mist">Woods in the target hex modify the attack but never count as intervening woods.</p>
+        </div>
+
+        <section className="panel overflow-hidden">
+          <div className="border-b border-line px-4 py-4 sm:px-5">
+            <div className="flex items-start justify-between gap-4"><div><p className="eyebrow">Chosen path</p><h2 className="mt-1 font-display text-xl font-semibold uppercase tracking-wide">Intervening hexes</h2><p className="mt-1 text-[10px] leading-4 text-mist">(Woods on the target hex never block line of sight.)</p></div><span className="mt-1 font-mono text-xs text-mist">{los.path.length}</span></div>
+          </div>
+          <div className="p-4 sm:p-5">
+            {los.path.length === 0 ? <p className="rounded-xl border border-acid/20 bg-acid/[.05] px-4 py-4 text-sm text-[#cfd9d4]">Adjacent units have no intervening hexes.</p> : (
+              <div className="grid gap-3 md:grid-cols-2">
+                {los.path.map((hex, index) => (
+                  <div key={index} className={`rounded-xl border p-3 ${index % 2 === 0 ? 'bg-[#0c110f]' : 'bg-[#171c1a]'} ${hex.terrain === 'clear' ? 'border-line' : 'border-[#5d8f93]/50 ring-1 ring-inset ring-[#5d8f93]/10'}`}>
+                    <div className="mb-2 flex items-center justify-between"><span className="font-display text-sm font-bold uppercase tracking-wider text-white">Hex {index + 1}</span><span className="font-mono text-[9px] uppercase text-mist">{terrainLabel(hex.terrain)}</span></div>
+                    <select aria-label={`Hex ${index + 1} terrain`} className="select" value={hex.terrain} onChange={(event) => updatePathHex(index, event.target.value)}><option value="clear">Clear</option><option value="light">Light woods (+1)</option><option value="heavy">Heavy woods (+2)</option></select>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className={`panel overflow-hidden ${result.blocked ? 'border-ember/35 shadow-[0_0_36px_rgba(255,122,69,.12)]' : 'border-acid/30 shadow-glow'}`}>{status}</section>
+      </div>
+
+      <aside id="los-solution" className="order-1 scroll-mt-4 lg:order-2 lg:sticky lg:top-5">
+        <div className={`panel overflow-hidden ${result.blocked ? 'border-ember/35 shadow-[0_0_42px_rgba(255,122,69,.16)]' : 'border-acid/30 shadow-glow'}`}>
+          {status}
+          <div className="mx-5 divide-y divide-line border-y border-line py-2 text-left">
+            <BreakdownRow label="Intervening light woods" value={result.lightWoods} />
+            <BreakdownRow label="Intervening heavy woods" value={result.heavyWoods} />
+            <BreakdownRow label="Target woods" value={result.targetWoods} />
+          </div>
+          <div className="p-5 pt-4"><button onClick={resetLos} className="h-11 w-full rounded-xl border border-line bg-[#0c110f] font-display text-xs font-bold uppercase tracking-[.14em] text-mist transition hover:border-acid/40 hover:text-white">Reset LOS</button></div>
+        </div>
+      </aside>
+    </main>
+  )
+}
+
+function RulesetToggle({ isQuickStart, onToggle }) {
+  const activeLabel = isQuickStart ? 'Quick-Start' : 'A Game of Armored Combat'
+  const nextLabel = isQuickStart ? 'A Game of Armored Combat' : 'Quick-Start'
+
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={`Rules mode: ${activeLabel}. Switch to ${nextLabel}.`}
+      title={`Rules mode: ${activeLabel}`}
+      className="group relative h-9 w-[116px] shrink-0 overflow-hidden rounded-md border border-[#555d58] bg-[linear-gradient(180deg,#252b28_0%,#111512_48%,#080b09_100%)] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,.12),inset_0_-2px_4px_rgba(0,0,0,.65),0_3px_10px_rgba(0,0,0,.3)] outline-none transition focus-visible:border-acid/70 focus-visible:ring-2 focus-visible:ring-acid/25 active:scale-[.98]"
+    >
+      <span className={`absolute left-[3px] top-[3px] h-[28px] w-[54px] rounded-[3px] border border-[#737d77] bg-[linear-gradient(180deg,#69736d_0%,#353c38_48%,#1c211e_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,.2),0_2px_5px_rgba(0,0,0,.6)] transition-transform duration-200 ${isQuickStart ? 'translate-x-[54px]' : 'translate-x-0'}`} aria-hidden="true">
+        <span className="absolute inset-x-2 top-1/2 h-px -translate-y-[3px] bg-black/40" />
+        <span className="absolute inset-x-2 top-1/2 h-px bg-black/40" />
+        <span className="absolute inset-x-2 top-1/2 h-px translate-y-[3px] bg-black/40" />
+      </span>
+      <span className="relative z-10 grid h-full grid-cols-2 place-items-center font-mono text-[8px] font-bold uppercase tracking-[.12em]">
+        <span className={isQuickStart ? 'text-[#707b75]' : 'text-white drop-shadow-[0_1px_1px_#000]'}>AGoAC</span>
+        <span className={isQuickStart ? 'text-white drop-shadow-[0_1px_1px_#000]' : 'text-[#707b75]'}>QSR</span>
+      </span>
+      <span className="absolute left-1 top-1 h-1 w-1 rounded-full bg-[#090b0a] shadow-[inset_0_0_0_1px_#7a837e]" aria-hidden="true" />
+      <span className="absolute bottom-1 right-1 h-1 w-1 rounded-full bg-[#090b0a] shadow-[inset_0_0_0_1px_#7a837e]" aria-hidden="true" />
+    </button>
+  )
+}
+
 function App() {
   const [state, setState] = useState(() => {
     try {
@@ -303,12 +401,23 @@ function App() {
         ...saved,
         los: { ...initialState.los, ...(saved.los || {}), path: Array.isArray(saved.los?.path) ? saved.los.path : [] },
         losLinked: { ...initialState.losLinked, ...(saved.losLinked || {}) },
+        quickStart: {
+          ...initialState.quickStart,
+          ...(saved.quickStart || {}),
+          los: {
+            ...initialState.quickStart.los,
+            ...(saved.quickStart?.los || {}),
+            path: Array.isArray(saved.quickStart?.los?.path) ? saved.quickStart.los.path : [],
+          },
+          losLinked: { ...initialState.quickStart.losLinked, ...(saved.quickStart?.losLinked || {}) },
+        },
       }
     } catch { return initialState }
   })
   const [showBreakdown, setShowBreakdown] = useState(false)
   const [activeView, setActiveView] = useState('targeting')
   const touchStart = useRef(null)
+  const isQuickStart = state.ruleset === 'quick-start'
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }, [state])
 
@@ -318,7 +427,19 @@ function App() {
     losLinked: Object.hasOwn(current.losLinked, key) ? { ...current.losLinked, [key]: false } : current.losLinked,
   }))
 
+  const setQuick = (key, value) => setState((current) => ({
+    ...current,
+    quickStart: {
+      ...current.quickStart,
+      [key]: value,
+      losLinked: Object.hasOwn(current.quickStart.losLinked, key)
+        ? { ...current.quickStart.losLinked, [key]: false }
+        : current.quickStart.losLinked,
+    },
+  }))
+
   const losResult = useMemo(() => calculateLos(state.los), [state.los])
+  const quickLosResult = useMemo(() => calculateQuickStartLos(state.quickStart.los), [state.quickStart.los])
 
   useEffect(() => {
     if (!state.losActive) return
@@ -347,6 +468,31 @@ function App() {
     })
   }, [losResult.blocked, losResult.heavyWoods, losResult.lightWoods, losResult.partialCover, losResult.waterCover, state.los.targetTerrain, state.losActive])
 
+  useEffect(() => {
+    if (!state.quickStart.losActive) return
+    setState((current) => {
+      const quick = current.quickStart
+      if (
+        quick.lightWoods === quickLosResult.lightWoods
+        && quick.heavyWoods === quickLosResult.heavyWoods
+        && quick.targetTerrain === quickLosResult.targetTerrain
+        && quick.losBlocked === quickLosResult.blocked
+        && Object.values(quick.losLinked).every(Boolean)
+      ) return current
+      return {
+        ...current,
+        quickStart: {
+          ...quick,
+          lightWoods: quickLosResult.lightWoods,
+          heavyWoods: quickLosResult.heavyWoods,
+          targetTerrain: quickLosResult.targetTerrain,
+          losBlocked: quickLosResult.blocked,
+          losLinked: { lightWoods: true, heavyWoods: true, targetTerrain: true },
+        },
+      }
+    })
+  }, [quickLosResult.blocked, quickLosResult.heavyWoods, quickLosResult.lightWoods, quickLosResult.targetTerrain, state.quickStart.losActive])
+
   const updateLos = (key, value) => setState((current) => {
     if (key !== 'distance') return { ...current, losActive: true, los: { ...current.los, [key]: value } }
     const pathLength = Math.max(0, Number(value) - 1)
@@ -369,6 +515,34 @@ function App() {
 
   const resetLos = () => setState((current) => ({ ...current, los: initialState.los, losActive: true, losBlocked: false }))
 
+  const updateQuickLosDistance = (value) => setState((current) => {
+    const pathLength = Math.max(0, Number(value) - 1)
+    const path = Array.from({ length: pathLength }, (_, index) => current.quickStart.los.path[index] || { terrain: 'clear' })
+    return {
+      ...current,
+      quickStart: { ...current.quickStart, losActive: true, los: { ...current.quickStart.los, distance: value, path } },
+    }
+  })
+
+  const updateQuickTargetTerrain = (value) => setState((current) => ({
+    ...current,
+    quickStart: { ...current.quickStart, losActive: true, los: { ...current.quickStart.los, targetTerrain: value } },
+  }))
+
+  const updateQuickPathHex = (index, terrain) => setState((current) => ({
+    ...current,
+    quickStart: {
+      ...current.quickStart,
+      losActive: true,
+      los: { ...current.quickStart.los, path: current.quickStart.los.path.map((hex, hexIndex) => hexIndex === index ? { ...hex, terrain } : hex) },
+    },
+  }))
+
+  const resetQuickLos = () => setState((current) => ({
+    ...current,
+    quickStart: { ...current.quickStart, los: initialState.quickStart.los, losActive: true, losBlocked: false },
+  }))
+
   const handleTouchEnd = (event) => {
     if (touchStart.current === null) return
     const delta = event.changedTouches[0].clientX - touchStart.current
@@ -378,6 +552,7 @@ function App() {
   }
 
   const mods = useMemo(() => {
+    if (state.ruleset === 'quick-start') return calculateQuickStartModifiers(state.quickStart)
     const gunnery = Number(state.gunnery)
     const attacker = Number(state.attackerMove) + (state.attackerProne ? 2 : 0) + (Number(state.sensorHits) * 2) + Number(state.armDamage) + heatModifier(Number(state.heat))
     const targetMovement = state.targetState === 'immobile' ? 0 : targetMovementModifier(Number(state.targetHexes)) + (state.targetJumped ? 1 : 0)
@@ -393,31 +568,50 @@ function App() {
     return { gunnery, attacker, target, other, range, targetMovement, targetCondition, terrain, tactical, indirect, minimum }
   }, [state])
 
-  const targetNumber = Object.values({ g: mods.gunnery, a: mods.attacker, t: mods.target, o: mods.other, r: mods.range }).reduce((a, b) => a + b, 0)
+  const targetNumber = totalTargetNumber(mods)
   const probability = hitProbability(targetNumber)
   const impossible = targetNumber > 12
   const auto = targetNumber <= 2
-  const noLos = state.losBlocked
+  const quickStartWoodsBlocked = Number(state.quickStart.lightWoods) + (Number(state.quickStart.heavyWoods) * 2) > 2
+  const noLos = isQuickStart ? (state.quickStart.losBlocked || quickStartWoodsBlocked) : state.losBlocked
+  const outOfRange = isQuickStart && state.quickStart.range === 'beyond'
 
-  const resetShot = () => setState((current) => ({ ...initialState, pilotName: current.pilotName, mechName: current.mechName, gunnery: current.gunnery }))
+  const resetShot = () => setState((current) => {
+    if (!isQuickStart) return { ...initialState, ruleset: current.ruleset, quickStart: current.quickStart, pilotName: current.pilotName, mechName: current.mechName, gunnery: current.gunnery }
+    return {
+      ...current,
+      quickStart: {
+        ...initialState.quickStart,
+        pilotName: current.quickStart.pilotName,
+        mechName: current.quickStart.mechName,
+        gunnery: current.quickStart.gunnery,
+      },
+    }
+  })
 
   return (
     <div className="relative min-h-screen">
       <header className="border-b border-line/70 bg-ink/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="relative h-10 w-10 overflow-hidden rounded-xl border border-acid/30 bg-acid/[.08]">
               <div className="absolute left-2 top-2 h-6 w-6 rotate-45 border-2 border-acid" />
               <div className="absolute left-[17px] top-1 h-8 w-1 bg-acid" />
             </div>
             <div>
               <p className="font-display text-xl font-bold uppercase leading-none tracking-[.14em] text-white">GATOR</p>
-              <p className="mt-1 font-mono text-[9px] uppercase tracking-[.18em] text-mist">Targeting computer // CBT</p>
+              <p className="mt-1 hidden font-mono text-[9px] uppercase tracking-[.18em] text-mist min-[430px]:block">Targeting computer // CBT</p>
             </div>
           </div>
-          <div className="hidden items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-mist sm:flex">
-            <span className="h-1.5 w-1.5 rounded-full bg-acid shadow-[0_0_10px_#d6ff38]" />
-            Local save active
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-widest text-mist" title="Local save active">
+              <span className="h-1.5 w-1.5 rounded-full bg-acid shadow-[0_0_10px_#d6ff38]" />
+              <span className="hidden sm:inline">Local save active</span>
+            </div>
+            <RulesetToggle
+              isQuickStart={isQuickStart}
+              onToggle={() => setState((current) => ({ ...current, ruleset: current.ruleset === 'quick-start' ? 'agoac' : 'quick-start' }))}
+            />
           </div>
         </div>
       </header>
@@ -431,12 +625,12 @@ function App() {
           />
           <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/10" />
           <div className="absolute bottom-2.5 right-3 rounded-md border border-white/10 bg-black/65 px-2 py-1 font-mono text-[8px] uppercase tracking-[.16em] text-white/70 backdrop-blur-sm sm:bottom-4 sm:right-4 sm:text-[9px]">
-            AGOAC fire control
+            {isQuickStart ? 'Quick-Start fire control' : 'AGoAC fire control'}
           </div>
         </div>
       </section>
 
-      <nav className="mx-auto mt-4 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
+      <nav className="mx-auto mt-3 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
         <div className="grid w-full max-w-md grid-cols-2 rounded-xl border border-line bg-panel/80 p-1">
           <button type="button" onClick={() => setActiveView('los')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'los' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Line of sight</button>
           <button type="button" onClick={() => setActiveView('targeting')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'targeting' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Targeting</button>
@@ -448,11 +642,51 @@ function App() {
       <main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:py-8">
         <div className="order-2 space-y-4 lg:order-1">
           <div className="mb-6">
-            <p className="eyebrow">A Game of Armored Combat // Weapon attacks</p>
-            <h1 className="mt-2 max-w-2xl font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Lock the shot.<br/><span className="text-acid">Skip the math.</span></h1>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-mist">Set the situation below. Your live 2D6 target number, odds, and complete GATOR breakdown stay ready at the table.</p>
+            <p className="eyebrow">{`${isQuickStart ? 'Quick-Start Rules' : 'A Game of Armored Combat'} // Weapon attacks`}</p>
+            <h1 className="mt-2 max-w-2xl font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">{isQuickStart ? 'Learn the shot.' : 'Lock the shot.'}<br/><span className="text-acid">Skip the math.</span></h1>
+            <p className="mt-3 max-w-xl text-sm leading-6 text-mist">{isQuickStart ? 'Only the modifiers included in the official beginner Quick-Start Rules are shown.' : 'Set the situation below. Your live 2D6 target number, odds, and complete GATOR breakdown stay ready at the table.'}</p>
           </div>
 
+          {isQuickStart ? <>
+          <Section code="G" title="Gunnery" subtitle="Base skill" total={mods.gunnery}>
+            <div className="grid gap-4 sm:grid-cols-[1fr_1fr_160px]">
+              <div><label className="field-label">Pilot / callsign</label><input className="select bg-none pr-3" value={state.quickStart.pilotName} onChange={(event) => setQuick('pilotName', event.target.value)} placeholder="Optional" /></div>
+              <div><label className="field-label">BattleMech</label><input className="select bg-none pr-3" value={state.quickStart.mechName} onChange={(event) => setQuick('mechName', event.target.value)} placeholder="Optional" /></div>
+              <div><label className="field-label">Gunnery skill</label><select className="select" value={state.quickStart.gunnery} onChange={(event) => setQuick('gunnery', Number(event.target.value))}>{[0,1,2,3,4,5,6,7,8].map((number) => <option key={number} value={number}>{number}{number === 4 ? ' — Default' : ''}</option>)}</select></div>
+            </div>
+          </Section>
+
+          <Section code="A" title="Attacker" subtitle="Movement mode" total={mods.attacker}>
+            <div><label className="field-label">Movement mode</label><select className="select" value={state.quickStart.attackerMove} onChange={(event) => setQuick('attackerMove', Number(event.target.value))}>{attackerMoves.map(([label, value]) => <option key={label} value={value}>{label} {value ? `(+${value})` : '(+0)'}</option>)}</select></div>
+          </Section>
+
+          <Section code="T" title="Target" subtitle="Movement" total={mods.target}>
+            <Stepper label="Hexes moved" value={state.quickStart.targetHexes} onChange={(value) => setQuick('targetHexes', value)} max={40} hint={`TMM +${targetMovementModifier(state.quickStart.targetHexes, 'quick-start')}`} />
+            <Toggle checked={state.quickStart.targetJumped} onChange={(value) => setQuick('targetJumped', value)} label="Target jumped" detail="Cumulative with the modifier from hexes moved" badge="+1" />
+          </Section>
+
+          <Section code="O" title="Other" subtitle="Pulse laser & woods" total={mods.other}>
+            <Toggle checked={state.quickStart.pulseLaser} onChange={(value) => setQuick('pulseLaser', value)} label="Firing a pulse laser" detail="Quick-Start pulse modifier" badge="−2" />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Stepper ariaLabel="Intervening light woods" label={<span>Intervening light woods<LinkedBadge active={state.quickStart.losLinked.lightWoods} /></span>} value={state.quickStart.lightWoods} onChange={(value) => setQuick('lightWoods', value)} max={5} suffix=" hex" hint="+1 each" />
+              <Stepper ariaLabel="Intervening heavy woods" label={<span>Intervening heavy woods<LinkedBadge active={state.quickStart.losLinked.heavyWoods} /></span>} value={state.quickStart.heavyWoods} onChange={(value) => setQuick('heavyWoods', value)} max={3} suffix=" hex" hint="+2 each" />
+            </div>
+            <div><label className="field-label">Target terrain<LinkedBadge active={state.quickStart.losLinked.targetTerrain} /></label><select className="select" value={state.quickStart.targetTerrain} onChange={(event) => setQuick('targetTerrain', event.target.value)}><option value="clear">Clear (+0)</option><option value="light">Light woods (+1)</option><option value="heavy">Heavy woods (+2)</option></select></div>
+            {(Number(state.quickStart.lightWoods) + Number(state.quickStart.heavyWoods) * 2) > 2 && <p className="rounded-lg border border-ember/20 bg-ember/[.06] px-3 py-2 text-[11px] leading-4 text-[#d9b7a8]">Three or more points of intervening woods block line of sight.</p>}
+            <details className="rounded-xl border border-line bg-[#0c110f] p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-mist">Custom / scenario modifier</summary>
+              <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_150px]">
+                <div><label className="field-label">Label</label><input className="select bg-none pr-3" value={state.quickStart.customLabel} onChange={(event) => setQuick('customLabel', event.target.value)} placeholder="Optional house rule…" /></div>
+                <div><label className="field-label">Modifier</label><select className="select" value={state.quickStart.customModifier} onChange={(event) => setQuick('customModifier', Number(event.target.value))}>{[-4,-3,-2,-1,0,1,2,3,4,5,6].map((number) => <option key={number} value={number}>{number > 0 ? '+' : ''}{number}</option>)}</select></div>
+              </div>
+            </details>
+          </Section>
+
+          <Section code="R" title="Range" subtitle="Weapon range bracket" total={mods.range}>
+            <div><label className="field-label">Range bracket</label><select className="select" value={state.quickStart.range} onChange={(event) => setQuick('range', event.target.value)}><option value="short">Short (+0)</option><option value="medium">Medium (+2)</option><option value="long">Long (+4)</option><option value="beyond">Beyond long range — cannot hit</option></select></div>
+            <p className="text-[11px] leading-4 text-mist">Check the firing weapon’s record-sheet ranges. Minimum range is not used in Quick-Start mode.</p>
+          </Section>
+          </> : <>
           <Section code="G" title="Gunnery" subtitle="Base skill" total={mods.gunnery}>
             <div className="grid gap-4 sm:grid-cols-[1fr_1fr_160px]">
               <div><label className="field-label">Pilot / callsign</label><input className="select bg-none pr-3" value={state.pilotName} onChange={(e) => set('pilotName', e.target.value)} placeholder="Optional" /></div>
@@ -482,8 +716,8 @@ function App() {
 
           <Section code="O" title="Other" subtitle="Terrain & tactical conditions" total={mods.other}>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Stepper label={<span>Light woods<LinkedBadge active={state.losLinked.lightWoods} /></span>} value={state.lightWoods} onChange={(v) => set('lightWoods', v)} max={5} suffix=" hex" hint="+1 each" />
-              <Stepper label={<span>Heavy woods<LinkedBadge active={state.losLinked.heavyWoods} /></span>} value={state.heavyWoods} onChange={(v) => set('heavyWoods', v)} max={3} suffix=" hex" hint="+2 each" />
+              <Stepper ariaLabel="Light woods" label={<span>Light woods<LinkedBadge active={state.losLinked.lightWoods} /></span>} value={state.lightWoods} onChange={(v) => set('lightWoods', v)} max={5} suffix=" hex" hint="+1 each" />
+              <Stepper ariaLabel="Heavy woods" label={<span>Heavy woods<LinkedBadge active={state.losLinked.heavyWoods} /></span>} value={state.heavyWoods} onChange={(v) => set('heavyWoods', v)} max={3} suffix=" hex" hint="+2 each" />
               <Toggle checked={state.partialCover} onChange={(v) => setState((current) => ({ ...current, partialCover: v, depthOneWater: v ? false : current.depthOneWater, losLinked: { ...current.losLinked, partialCover: false, depthOneWater: false } }))} label={<span>Partial cover<LinkedBadge active={state.losLinked.partialCover} /></span>} detail="Target partially obscured" badge="+1" />
               <Toggle checked={state.depthOneWater} onChange={(v) => setState((current) => ({ ...current, depthOneWater: v, partialCover: v ? false : current.partialCover, losLinked: { ...current.losLinked, partialCover: false, depthOneWater: false } }))} label={<span>Target in depth 1 water<LinkedBadge active={state.losLinked.depthOneWater} /></span>} detail="Counts as partial cover; options are mutually exclusive" badge="+1" />
             </div>
@@ -504,22 +738,23 @@ function App() {
             </div>
             {state.range === 'minimum' && <p className="font-mono text-[11px] text-mist">Formula: minimum range − target distance + 1 = <span className="text-acid">+{mods.minimum}</span></p>}
           </Section>
+          </>}
         </div>
 
         <aside id="target-solution" className="order-1 scroll-mt-4 lg:order-2 lg:sticky lg:top-5">
-          <div className={`panel overflow-hidden transition-shadow duration-300 ${noLos || impossible ? 'border-ember/35 shadow-[0_0_42px_rgba(255,122,69,.16)]' : auto ? 'border-acid/40 shadow-[0_0_48px_rgba(214,255,56,.2)]' : 'border-acid/20 shadow-glow'}`}>
+          <div className={`panel overflow-hidden transition-shadow duration-300 ${noLos || outOfRange || impossible ? 'border-ember/35 shadow-[0_0_42px_rgba(255,122,69,.16)]' : auto ? 'border-acid/40 shadow-[0_0_48px_rgba(214,255,56,.2)]' : 'border-acid/20 shadow-glow'}`}>
             <div className="border-b border-line bg-[#0c110f] px-5 py-4">
               <div className="flex items-center justify-between">
-                <div><p className="eyebrow">Fire control solution</p><p className="mt-1 text-xs text-mist">{state.mechName || 'Unassigned unit'}{state.pilotName ? ` // ${state.pilotName}` : ''}</p></div>
-                <span className={`h-2.5 w-2.5 rounded-full ${noLos || impossible ? 'bg-ember shadow-[0_0_12px_#ff7a45]' : 'bg-acid shadow-[0_0_12px_#d6ff38]'}`} />
+                <div><p className="eyebrow">{isQuickStart ? 'Quick-Start' : 'AGoAC'} fire control</p><p className="mt-1 text-xs text-mist">{(isQuickStart ? state.quickStart.mechName : state.mechName) || 'Unassigned unit'}{(isQuickStart ? state.quickStart.pilotName : state.pilotName) ? ` // ${isQuickStart ? state.quickStart.pilotName : state.pilotName}` : ''}</p></div>
+                <span className={`h-2.5 w-2.5 rounded-full ${noLos || outOfRange || impossible ? 'bg-ember shadow-[0_0_12px_#ff7a45]' : 'bg-acid shadow-[0_0_12px_#d6ff38]'}`} />
               </div>
             </div>
             <div className="p-5 sm:p-6">
-              <div key={`${targetNumber}-${noLos}`} className="result-pop text-center">
+              <div key={`${targetNumber}-${noLos}-${outOfRange}`} className="result-pop text-center">
                 <p className="eyebrow">2D6 target number</p>
-                <div className={`mt-1 font-display text-[92px] font-bold leading-none tracking-[-.07em] ${noLos || impossible ? 'text-ember' : 'text-white'}`}>{noLos ? '—' : targetNumber}</div>
-                <p className={`mt-2 font-mono font-semibold uppercase ${noLos || impossible || auto ? 'text-lg tracking-[.2em] drop-shadow-[0_0_12px_currentColor] sm:text-xl' : 'text-xs tracking-[.18em]'} ${noLos || impossible ? 'text-ember' : 'text-acid'}`}>
-                  {noLos ? 'No line of sight' : impossible ? 'Automatic miss' : auto ? 'Automatic hit' : `${probability}% chance to hit`}
+                <div className={`mt-1 font-display text-[92px] font-bold leading-none tracking-[-.07em] ${noLos || outOfRange || impossible ? 'text-ember' : 'text-white'}`}>{noLos || outOfRange ? '—' : targetNumber}</div>
+                <p className={`mt-2 font-mono font-semibold uppercase ${noLos || outOfRange || impossible || auto ? 'text-lg tracking-[.2em] drop-shadow-[0_0_12px_currentColor] sm:text-xl' : 'text-xs tracking-[.18em]'} ${noLos || outOfRange || impossible ? 'text-ember' : 'text-acid'}`}>
+                  {noLos ? 'No line of sight' : outOfRange ? 'Out of weapon range' : impossible ? 'Automatic miss' : auto ? 'Automatic hit' : `${probability}% chance to hit`}
                 </p>
               </div>
 
@@ -537,13 +772,14 @@ function App() {
               </button>
               {showBreakdown && <div className="border-b border-line py-3">
                 <BreakdownRow label="Gunnery skill" value={mods.gunnery} base />
-                <BreakdownRow label="Attacker movement, damage & heat" value={mods.attacker} />
+                <BreakdownRow label={isQuickStart ? 'Attacker movement' : 'Attacker movement, damage & heat'} value={mods.attacker} />
                 <BreakdownRow label="Target movement" value={mods.targetMovement} />
-                <BreakdownRow label="Target condition" value={mods.targetCondition} />
+                {!isQuickStart && <BreakdownRow label="Target condition" value={mods.targetCondition} />}
                 <BreakdownRow label="Terrain" value={mods.terrain} />
-                <BreakdownRow label="Multiple target" value={mods.tactical} />
-                <BreakdownRow label="Indirect fire" value={mods.indirect} />
-                {state.customModifier !== 0 && <BreakdownRow label={state.customLabel || 'Custom modifier'} value={Number(state.customModifier)} />}
+                {isQuickStart && <BreakdownRow label="Pulse laser" value={mods.pulse} />}
+                {!isQuickStart && <BreakdownRow label="Multiple target" value={mods.tactical} />}
+                {!isQuickStart && <BreakdownRow label="Indirect fire" value={mods.indirect} />}
+                {(isQuickStart ? state.quickStart.customModifier : state.customModifier) !== 0 && <BreakdownRow label={(isQuickStart ? state.quickStart.customLabel : state.customLabel) || 'Custom modifier'} value={Number(isQuickStart ? state.quickStart.customModifier : state.customModifier)} />}
                 <BreakdownRow label="Range" value={mods.range} />
               </div>}
 
@@ -553,12 +789,14 @@ function App() {
           </div>
 
           <div className="mt-4 rounded-xl border border-line/70 px-4 py-3 text-[10px] leading-4 text-[#68736e]">
-            Built for BattleMech weapon attacks using A Game of Armored Combat. Always defer to your current printing and scenario-specific rules.
+            {isQuickStart ? 'Built for the official BattleTech Quick-Start Rules. Advanced AGoAC modifiers are intentionally hidden.' : 'Built for BattleMech weapon attacks using A Game of Armored Combat. Always defer to your current printing and scenario-specific rules.'}
           </div>
         </aside>
       </main>
       ) : (
-        <LosView los={state.los} result={losResult} updateLos={updateLos} updateEndpoint={updateEndpoint} updatePathHex={updatePathHex} resetLos={resetLos} />
+        isQuickStart
+          ? <QuickStartLosView data={state.quickStart} result={quickLosResult} updateDistance={updateQuickLosDistance} updateTargetTerrain={updateQuickTargetTerrain} updatePathHex={updateQuickPathHex} resetLos={resetQuickLos} />
+          : <LosView los={state.los} result={losResult} updateLos={updateLos} updateEndpoint={updateEndpoint} updatePathHex={updatePathHex} resetLos={resetLos} />
       )}
       </div>
       {activeView === 'targeting' && <button
