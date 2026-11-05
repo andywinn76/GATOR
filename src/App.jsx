@@ -3,6 +3,13 @@ import { calculateQuickStartModifiers, heatModifier, hitProbability, targetMovem
 
 const STORAGE_KEY = 'gator-battletech-v1'
 
+const RULESETS = [
+  { id: 'agoac', short: 'Core', name: 'Core Rules', banner: 'Core Rules fire control' },
+  { id: 'quick-start', short: 'QS', name: 'Quick-Start', banner: 'Quick-Start fire control' },
+  { id: 'alpha-strike', short: 'AS', name: 'Alpha Strike Core', banner: 'Alpha Strike Core fire control' },
+  { id: 'alpha-strike-quick-start', short: 'ASQ', name: 'Alpha Strike Quick-Start', banner: 'Alpha Strike Quick-Start fire control' },
+]
+
 const initialState = {
   ruleset: 'agoac',
   pilotName: '', mechName: '', gunnery: 4,
@@ -365,30 +372,48 @@ function QuickStartLosView({ data, result, updateDistance, updateTargetTerrain, 
   )
 }
 
-function RulesetToggle({ isQuickStart, onToggle }) {
-  const activeLabel = isQuickStart ? 'Quick-Start' : 'A Game of Armored Combat'
-  const nextLabel = isQuickStart ? 'A Game of Armored Combat' : 'Quick-Start'
-
+function RulesetSelector({ value, onChange }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-label={`Rules mode: ${activeLabel}. Switch to ${nextLabel}.`}
-      title={`Rules mode: ${activeLabel}`}
-      className="group relative h-9 w-[116px] shrink-0 overflow-hidden rounded-md border border-[#555d58] bg-[linear-gradient(180deg,#252b28_0%,#111512_48%,#080b09_100%)] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,.12),inset_0_-2px_4px_rgba(0,0,0,.65),0_3px_10px_rgba(0,0,0,.3)] outline-none transition focus-visible:border-acid/70 focus-visible:ring-2 focus-visible:ring-acid/25 active:scale-[.98]"
-    >
-      <span className={`absolute left-[3px] top-[3px] h-[28px] w-[54px] rounded-[3px] border border-[#737d77] bg-[linear-gradient(180deg,#69736d_0%,#353c38_48%,#1c211e_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,.2),0_2px_5px_rgba(0,0,0,.6)] transition-transform duration-200 ${isQuickStart ? 'translate-x-[54px]' : 'translate-x-0'}`} aria-hidden="true">
-        <span className="absolute inset-x-2 top-1/2 h-px -translate-y-[3px] bg-black/40" />
-        <span className="absolute inset-x-2 top-1/2 h-px bg-black/40" />
-        <span className="absolute inset-x-2 top-1/2 h-px translate-y-[3px] bg-black/40" />
-      </span>
-      <span className="relative z-10 grid h-full grid-cols-2 place-items-center font-mono text-[8px] font-bold uppercase tracking-[.12em]">
-        <span className={isQuickStart ? 'text-[#707b75]' : 'text-white drop-shadow-[0_1px_1px_#000]'}>AGoAC</span>
-        <span className={isQuickStart ? 'text-white drop-shadow-[0_1px_1px_#000]' : 'text-[#707b75]'}>QSR</span>
-      </span>
+    <div role="radiogroup" aria-label="Rules mode" className="relative grid h-9 w-[128px] shrink-0 grid-cols-4 gap-[2px] overflow-hidden rounded-md border border-[#555d58] bg-[linear-gradient(180deg,#252b28_0%,#111512_48%,#080b09_100%)] p-[3px] shadow-[inset_0_1px_0_rgba(255,255,255,.12),inset_0_-2px_4px_rgba(0,0,0,.65),0_3px_10px_rgba(0,0,0,.3)] sm:w-[164px]">
+      {RULESETS.map((ruleset) => {
+        const active = value === ruleset.id
+        return (
+          <button
+            key={ruleset.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={ruleset.name}
+            title={ruleset.name}
+            onClick={() => onChange(ruleset.id)}
+            className={`relative z-10 rounded-[3px] border font-mono text-[7px] font-bold uppercase leading-none outline-none transition sm:text-[8px] ${active ? 'border-[#7d887f] bg-[linear-gradient(180deg,#69736d_0%,#353c38_48%,#1c211e_100%)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,.2),0_2px_5px_rgba(0,0,0,.6)]' : 'border-transparent text-[#707b75] hover:text-[#a9b2ad] focus-visible:border-acid/70'}`}
+          >
+            {ruleset.short}
+          </button>
+        )
+      })}
       <span className="absolute left-1 top-1 h-1 w-1 rounded-full bg-[#090b0a] shadow-[inset_0_0_0_1px_#7a837e]" aria-hidden="true" />
       <span className="absolute bottom-1 right-1 h-1 w-1 rounded-full bg-[#090b0a] shadow-[inset_0_0_0_1px_#7a837e]" aria-hidden="true" />
-    </button>
+    </div>
+  )
+}
+
+function AlphaStrikePlaceholder({ ruleset }) {
+  return (
+    <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
+      <section className="panel relative overflow-hidden p-6 text-center sm:p-10">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(214,255,56,.09),transparent_55%)]" />
+        <div className="relative">
+          <p className="eyebrow">Reserved rules module</p>
+          <h1 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight text-white sm:text-6xl">{ruleset.name}</h1>
+          <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-md border border-acid/25 bg-acid/[.06] px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-[.18em] text-acid">
+            <span className="h-1.5 w-1.5 rounded-full bg-acid shadow-[0_0_10px_#d6ff38]" />
+            Coming soon
+          </div>
+          <p className="mx-auto mt-5 max-w-xl text-sm leading-6 text-mist">This mode is ready for its own Alpha Strike calculator. Until those rules are implemented, Classic BattleTech controls stay hidden to prevent mixing systems.</p>
+        </div>
+      </section>
+    </main>
   )
 }
 
@@ -417,7 +442,9 @@ function App() {
   const [showBreakdown, setShowBreakdown] = useState(false)
   const [activeView, setActiveView] = useState('targeting')
   const touchStart = useRef(null)
+  const activeRuleset = RULESETS.find((ruleset) => ruleset.id === state.ruleset) || RULESETS[0]
   const isQuickStart = state.ruleset === 'quick-start'
+  const isAlphaStrike = state.ruleset.startsWith('alpha-strike')
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }, [state])
 
@@ -608,9 +635,9 @@ function App() {
               <span className="h-1.5 w-1.5 rounded-full bg-acid shadow-[0_0_10px_#d6ff38]" />
               <span className="hidden sm:inline">Local save active</span>
             </div>
-            <RulesetToggle
-              isQuickStart={isQuickStart}
-              onToggle={() => setState((current) => ({ ...current, ruleset: current.ruleset === 'quick-start' ? 'agoac' : 'quick-start' }))}
+            <RulesetSelector
+              value={activeRuleset.id}
+              onChange={(ruleset) => setState((current) => ({ ...current, ruleset }))}
             />
           </div>
         </div>
@@ -625,18 +652,19 @@ function App() {
           />
           <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/10" />
           <div className="absolute bottom-2.5 right-3 rounded-md border border-white/10 bg-black/65 px-2 py-1 font-mono text-[8px] uppercase tracking-[.16em] text-white/70 backdrop-blur-sm sm:bottom-4 sm:right-4 sm:text-[9px]">
-            {isQuickStart ? 'Quick-Start fire control' : 'AGoAC fire control'}
+            {activeRuleset.banner}
           </div>
         </div>
       </section>
 
-      <nav className="mx-auto mt-3 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
+      {!isAlphaStrike && <nav className="mx-auto mt-3 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
         <div className="grid w-full max-w-md grid-cols-2 rounded-xl border border-line bg-panel/80 p-1">
           <button type="button" onClick={() => setActiveView('los')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'los' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Line of sight</button>
           <button type="button" onClick={() => setActiveView('targeting')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'targeting' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Targeting</button>
         </div>
-      </nav>
+      </nav>}
 
+      {isAlphaStrike ? <AlphaStrikePlaceholder ruleset={activeRuleset} /> : <>
       <div onTouchStart={(event) => { touchStart.current = event.touches[0].clientX }} onTouchEnd={handleTouchEnd}>
       {activeView === 'targeting' ? (
       <main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:py-8">
@@ -821,6 +849,7 @@ function App() {
           <path d="m6 18 6-6 6 6" />
         </svg>
       </button>}
+      </>}
       <footer className="mx-auto max-w-7xl px-4 pb-8 pt-2 text-center font-mono text-[9px] uppercase tracking-widest text-[#4f5a55] sm:px-6">Unofficial fan-made play aid · BattleTech is a trademark of The Topps Company, Inc.</footer>
     </div>
   )
