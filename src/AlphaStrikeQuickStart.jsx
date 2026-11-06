@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { alphaStrikeQuickStartDefaults, calculateAlphaStrikeQuickStartLos, calculateAlphaStrikeQuickStartModifiers, hitProbability, totalTargetNumber } from './rules.js'
 
 function Section({ code, title, subtitle, total, children }) {
@@ -28,10 +29,35 @@ function Toggle({ checked, onChange, label, detail, badge }) {
 }
 
 function NumberInput({ label, value, onChange, min = 0, max = 99, step = 1, suffix, hint }) {
+  const inputRef = useRef(null)
+  const [draft, setDraft] = useState(String(value))
+
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) setDraft(String(value))
+  }, [value])
+
+  const changeDraft = (event) => {
+    const nextDraft = event.target.value
+    setDraft(nextDraft)
+    if (nextDraft === '') return
+
+    const nextValue = Number(nextDraft)
+    if (Number.isFinite(nextValue)) onChange(Math.min(max, Math.max(min, nextValue)))
+  }
+
+  const commitDraft = () => {
+    const nextValue = Number(draft)
+    const committedValue = draft === '' || !Number.isFinite(nextValue)
+      ? value
+      : Math.min(max, Math.max(min, nextValue))
+    setDraft(String(committedValue))
+    if (committedValue !== value) onChange(committedValue)
+  }
+
   return (
     <div>
       <div className="mb-2 flex items-end justify-between gap-3"><label className="field-label !mb-0">{label}</label>{hint && <span className="text-[10px] text-mist">{hint}</span>}</div>
-      <div className="relative"><input type="number" inputMode="decimal" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Math.min(max, Math.max(min, Number(event.target.value))))} className="select bg-none pr-12 font-mono" />{suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-xs text-mist">{suffix}</span>}</div>
+      <div className="relative"><input ref={inputRef} type="number" inputMode="decimal" min={min} max={max} step={step} value={draft} onChange={changeDraft} onBlur={commitDraft} className="select bg-none pr-12 font-mono" />{suffix && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 font-mono text-xs text-mist">{suffix}</span>}</div>
     </div>
   )
 }
@@ -97,7 +123,7 @@ function AlphaStrikeTargeting({ data, update }) {
   return (
     <main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:py-8">
       <div className="order-2 space-y-4 lg:order-1">
-        <div className="mb-6"><p className="eyebrow">Alpha Strike Quick-Start // Weapon & physical attacks</p><h1 className="mt-2 font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Build the SATOR.<br/><span className="text-acid">Take the shot.</span></h1><p className="mt-3 max-w-2xl text-sm leading-6 text-mist">Skill, movement, terrain, heat, damage, stealth, and fixed Alpha Strike ranges are calculated from the Quick-Start rules.</p></div>
+        <div className="mb-6"><p className="eyebrow">Alpha Strike Quick-Start // Weapon & physical attacks</p><h1 className="mt-2 font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Calculate SATOR<br/><span className="text-acid">Take the shot.</span></h1><p className="mt-3 max-w-2xl text-sm leading-6 text-mist">Skill, movement, terrain, heat, damage, stealth, and fixed Alpha Strike ranges are calculated from the Quick-Start rules.</p></div>
 
         <Section code="S" title="Skill" subtitle="Base target number" total={modifiers.gunnery}>
           <div className="grid gap-4 sm:grid-cols-[1fr_1fr_150px]"><div><label className="field-label">Pilot / callsign</label><input className="select bg-none pr-3" value={data.pilotName} onChange={(event) => setField('pilotName', event.target.value)} placeholder="Optional" /></div><div><label className="field-label">Unit</label><input className="select bg-none pr-3" value={data.unitName} onChange={(event) => setField('unitName', event.target.value)} placeholder="Optional" /></div><div><label className="field-label">Skill rating</label><select className="select" value={data.skill} onChange={(event) => setField('skill', Number(event.target.value))}>{[0,1,2,3,4,5,6,7,8].map((number) => <option key={number} value={number}>{number}{number === 4 ? ' — Default' : ''}</option>)}</select></div></div>
@@ -108,7 +134,7 @@ function AlphaStrikeTargeting({ data, update }) {
         </Section>
 
         <Section code="T" title="Target" subtitle="Unit-card TMM" total={modifiers.target}>
-          <div className="grid gap-4 sm:grid-cols-2"><div><label className="field-label">Target movement</label><select className="select" value={data.targetMove} onChange={(event) => setField('targetMove', event.target.value)}><option value="standstill">Standstill (+0)</option><option value="ground">Ground Move / Sprinting (+TMM)</option><option value="jumping">Jumping (+TMM +1)</option><option value="immobile">Immobile (−4)</option></select></div><NumberInput label="Printed TMM" value={data.targetTmm} onChange={(value) => setField('targetTmm', value)} max={8} hint={data.targetMove === 'jumping' ? 'Adds +1' : undefined} /></div>
+          <div className="grid gap-4 sm:grid-cols-2"><div><label className="field-label">Target movement</label><select className="select" value={data.targetMove} onChange={(event) => setField('targetMove', event.target.value)}><option value="standstill">Standstill (+0)</option><option value="ground">Ground Move / Sprinting (+TMM)</option><option value="jumping">Jumping (+TMM +1)</option><option value="immobile">Immobile (−4)</option></select></div><div><div className="mb-2 flex items-end justify-between gap-3"><label className="field-label !mb-0">Printed TMM</label>{data.targetMove === 'jumping' && <span className="text-[10px] text-mist">Adds +1</span>}</div><select className="select" value={data.targetTmm} onChange={(event) => setField('targetTmm', Number(event.target.value))}>{[0,1,2,3,4,5].map((number) => <option key={number} value={number}>{number} (+{number})</option>)}</select></div></div>
         </Section>
 
         <Section code="O" title="Other" subtitle="Terrain, heat & damage" total={modifiers.other}>

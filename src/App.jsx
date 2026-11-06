@@ -221,7 +221,7 @@ function LosView({ los, result, updateLos, updateEndpoint, updatePathHex, resetL
       <div className="order-2 space-y-4 lg:order-1">
         <div className="mb-6">
           <p className="eyebrow">A Game of Armored Combat // Line of sight</p>
-          <h1 className="mt-2 font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Trace the line.<br/><span className="text-acid">Know the shot.</span></h1>
+          <h1 className="mt-2 font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Check the path.<br/><span className="text-acid">Confirm the shot.</span></h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-mist">Enter the chosen center-to-center path. Clear Level 0 is the default, so only unusual hexes need attention.</p>
         </div>
 
@@ -323,7 +323,7 @@ function QuickStartLosView({ data, result, updateDistance, updateTargetTerrain, 
       <div className="order-2 space-y-4 lg:order-1">
         <div className="mb-6">
           <p className="eyebrow">Quick-Start Rules // Line of sight</p>
-          <h1 className="mt-2 font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Trace the woods.<br/><span className="text-acid">Know the shot.</span></h1>
+          <h1 className="mt-2 font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Check the path.<br/><span className="text-acid">Confirm the shot.</span></h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-mist">Quick-Start LOS only counts intervening woods. Clear is the default, and other ’Mechs never affect LOS.</p>
         </div>
 
@@ -441,6 +441,7 @@ function App() {
         alphaStrikeQuick: {
           ...initialState.alphaStrikeQuick,
           ...(saved.alphaStrikeQuick || {}),
+          targetTmm: Math.min(5, Math.max(0, Number(saved.alphaStrikeQuick?.targetTmm ?? initialState.alphaStrikeQuick.targetTmm))),
           los: { ...initialState.alphaStrikeQuick.los, ...(saved.alphaStrikeQuick?.los || {}) },
           losLinked: { ...initialState.alphaStrikeQuick.losLinked, ...(saved.alphaStrikeQuick?.losLinked || {}) },
         },
@@ -680,7 +681,7 @@ function App() {
         <div className="order-2 space-y-4 lg:order-1">
           <div className="mb-6">
             <p className="eyebrow">{`${isQuickStart ? 'Quick-Start Rules' : 'A Game of Armored Combat'} // Weapon attacks`}</p>
-            <h1 className="mt-2 max-w-2xl font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">{isQuickStart ? 'Learn the shot.' : 'Lock the shot.'}<br/><span className="text-acid">Skip the math.</span></h1>
+            <h1 className="mt-2 max-w-2xl font-display text-3xl font-bold uppercase leading-[.95] tracking-tight text-white sm:text-5xl">Set the modifiers.<br/><span className="text-acid">Skip the math.</span></h1>
             <p className="mt-3 max-w-xl text-sm leading-6 text-mist">{isQuickStart ? 'Only the modifiers included in the official beginner Quick-Start Rules are shown.' : 'Set the situation below. Your live 2D6 target number, odds, and complete GATOR breakdown stay ready at the table.'}</p>
           </div>
 
