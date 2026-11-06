@@ -1,3 +1,33 @@
+export const alphaStrikeQuickStartDefaults = {
+  pilotName: '',
+  unitName: '',
+  skill: 4,
+  attackType: 'weapon',
+  attackerMove: 'ground',
+  targetMove: 'ground',
+  targetTmm: 0,
+  woods: false,
+  partialCover: false,
+  heat: 0,
+  fireControlHits: 0,
+  targetStealth: false,
+  firingArc: true,
+  distance: 6,
+  damageProfile: 'standard',
+  customModifier: 0,
+  customLabel: '',
+  losBlocked: false,
+  losLinked: { woods: false, partialCover: false, distance: false },
+  los: {
+    distance: 6,
+    solidTerrain: 'clear',
+    woodsDepth: 'none',
+    woodsBeyondTwo: true,
+    targetWoods: false,
+    targetWater: false,
+  },
+}
+
 export function targetMovementModifier(hexes, ruleset = 'agoac') {
   const distance = Number(hexes)
   if (ruleset === 'quick-start') {
@@ -48,6 +78,76 @@ export function calculateQuickStartModifiers(input) {
     terrain,
     pulse,
     custom: Number(input.customModifier || 0),
+  }
+}
+
+export function alphaStrikeRange(distance) {
+  const inches = Number(distance)
+  if (inches <= 6) return { bracket: 'short', modifier: 0 }
+  if (inches <= 24) return { bracket: 'medium', modifier: 2 }
+  if (inches <= 42) return { bracket: 'long', modifier: 4 }
+  return { bracket: 'beyond', modifier: 0 }
+}
+
+export function calculateAlphaStrikeQuickStartLos(input) {
+  const adjacent = Number(input.distance) === 0
+  const solidBlocked = !adjacent && input.solidTerrain === 'blocked'
+  const woodsBlocked = !adjacent && input.woodsDepth === 'six-plus'
+  const blocked = solidBlocked || woodsBlocked
+  const partialCover = input.solidTerrain === 'partial' || Boolean(input.targetWater)
+  const interveningWoods = input.woodsDepth !== 'none' && Boolean(input.woodsBeyondTwo)
+  const woodsModifier = interveningWoods || Boolean(input.targetWoods)
+
+  return {
+    adjacent,
+    blocked,
+    reason: solidBlocked
+      ? 'Solid terrain leaves less than one-third of the target visible.'
+      : woodsBlocked
+        ? 'Six inches or more of intervening woods block line of sight.'
+        : '',
+    partialCover,
+    woodsModifier,
+    terrainModifier: (partialCover ? 1 : 0) + (woodsModifier ? 1 : 0),
+  }
+}
+
+export function calculateAlphaStrikeQuickStartModifiers(input) {
+  const isWeapon = input.attackType === 'weapon'
+  const rangeData = alphaStrikeRange(input.distance)
+  const attacker = input.attackerMove === 'standstill' ? -1 : input.attackerMove === 'jumping' ? 2 : 0
+  const target = input.targetMove === 'immobile'
+    ? -4
+    : input.targetMove === 'standstill'
+      ? 0
+      : Number(input.targetTmm) + (input.targetMove === 'jumping' ? 1 : 0)
+  const terrain = input.attackType === 'dfa'
+    ? 0
+    : (input.woods ? 1 : 0) + (input.partialCover ? 1 : 0)
+  const heat = isWeapon ? Number(input.heat) : 0
+  const fireControl = isWeapon ? Number(input.fireControlHits) * 2 : 0
+  const physical = input.attackType === 'charge' || input.attackType === 'dfa' ? 1 : 0
+  const stealth = isWeapon && input.targetStealth
+    ? rangeData.bracket === 'medium' ? 1 : rangeData.bracket === 'long' ? 2 : 0
+    : 0
+  const custom = Number(input.customModifier || 0)
+  const other = terrain + heat + fireControl + physical + stealth + custom
+  const range = isWeapon ? rangeData.modifier : 0
+
+  return {
+    gunnery: Number(input.skill),
+    attacker,
+    target,
+    other,
+    range,
+    targetMovement: target,
+    terrain,
+    heat,
+    fireControl,
+    physical,
+    stealth,
+    custom,
+    rangeBracket: rangeData.bracket,
   }
 }
 

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "id": "battletech-core-quick-start-2026",
+  "name": "BattleTech Core Quick-Start Weapons",
+  "ruleset": "core-quick-start",
+  "source": {
+    "title": "BattleTech Quick-Start Rules",
+    "url": "https://battletech.com/wp-content/uploads/sites/6/2026/07/BattleTech-Quick-Start-Rules.pdf",
+    "pages": [7, 8, 15]
+  },
+  "notes": [
+    "This catalog contains the unique weapons printed on the record sheets included in the 2026 Core Quick-Start Rules.",
+    "Ammo-bin capacities are properties of a unit loadout and are intentionally not stored on weapon definitions.",
+    "Minimum ranges are not used by the Quick-Start rules and are intentionally omitted.",
+    "This is not a complete catalog of weapons from the full BattleTech rules."
+  ],
+  "weapons": [
+    {
+      "id": "medium-laser",
+      "name": "Medium Laser",
+      "category": "energy",
+      "techBases": ["inner-sphere"],
+      "damage": { "type": "fixed", "value": 5 },
+      "range": { "short": 3, "medium": 6, "long": 9 },
+      "ammo": null,
+      "traits": [],
+      "sourcePages": [15]
+    },
+    {
+      "id": "clan-er-medium-laser",
+      "name": "ER Medium Laser",
+      "category": "energy",
+      "techBases": ["clan"],
+      "damage": { "type": "fixed", "value": 7 },
+      "range": { "short": 5, "medium": 10, "long": 15 },
+      "ammo": null,
+      "traits": ["extended-range"],
+      "sourcePages": [7]
+    },
+    {
+      "id": "ppc",
+      "name": "PPC",
+      "category": "energy",
+      "techBases": ["inner-sphere"],
+      "damage": { "type": "fixed", "value": 10 },
+      "range": { "short": 6, "medium": 12, "long": 18 },
+      "ammo": null,
+      "traits": [],
+      "sourcePages": [15]
+    },
+    {
+      "id": "clan-er-ppc",
+      "name": "ER PPC",
+      "category": "energy",
+      "techBases": ["clan"],
+      "damage": { "type": "fixed", "value": 15 },
+      "range": { "short": 7, "medium": 14, "long": 23 },
+      "ammo": null,
+      "traits": ["extended-range"],
+      "sourcePages": [8]
+    },
+    {
+      "id": "ac-5",
+      "name": "AC/5",
+      "category": "ballistic",
+      "techBases": ["inner-sphere"],
+      "damage": { "type": "fixed", "value": 5 },
+      "range": { "short": 6, "medium": 12, "long": 18 },
+      "ammo": { "type": "ac-5", "perAttack": 1 },
+      "traits": [],
+      "sourcePages": [15]
+    },
+    {
+      "id": "clan-lb-10-x-ac",
+      "name": "LB 10-X AC",
+      "category": "ballistic",
+      "techBases": ["clan"],
+      "damage": { "type": "fixed", "value": 10 },
+      "range": { "short": 6, "medium": 12, "long": 18 },
+      "ammo": { "type": "lb-10-x", "perAttack": 1 },
+      "traits": ["lb-x"],
+      "sourcePages": [8]
+    },
+    {
+      "id": "srm-4",
+      "name": "SRM 4",
+      "category": "missile",
+      "techBases": ["clan"],
+      "damage": { "type": "per-missile", "value": 2, "missiles": 4 },
+      "range": { "short": 3, "medium": 6, "long": 9 },
+      "ammo": { "type": "srm-4", "perAttack": 1 },
+      "traits": ["cluster-hit-roll"],
+      "sourcePages": [7]
+    },
+    {
+      "id": "srm-6",
+      "name": "SRM 6",
+      "category": "missile",
+      "techBases": ["inner-sphere", "clan"],
+      "damage": { "type": "per-missile", "value": 2, "missiles": 6 },
+      "range": { "short": 3, "medium": 6, "long": 9 },
+      "ammo": { "type": "srm-6", "perAttack": 1 },
+      "traits": ["cluster-hit-roll"],
+      "sourcePages": [7, 15]
+    },
+    {
+      "id": "lrm-10",
+      "name": "LRM 10",
+      "category": "missile",
+      "techBases": ["inner-sphere"],
+      "damage": { "type": "per-missile", "value": 1, "missiles": 10 },
+      "range": { "short": 7, "medium": 14, "long": 21 },
+      "ammo": { "type": "lrm-10", "perAttack": 1 },
+      "traits": ["cluster-hit-roll"],
+      "sourcePages": [15]
+    },
+    {
+      "id": "clan-lrm-15",
+      "name": "LRM 15",
+      "category": "missile",
+      "techBases": ["clan"],
+      "damage": { "type": "per-missile", "value": 1, "missiles": 15 },
+      "range": { "short": 7, "medium": 14, "long": 21 },
+      "ammo": { "type": "lrm-15", "perAttack": 1 },
+      "traits": ["cluster-hit-roll"],
+      "sourcePages": [8]
+    }
+  ]
+}

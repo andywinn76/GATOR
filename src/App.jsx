@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { calculateQuickStartModifiers, heatModifier, hitProbability, targetMovementModifier, totalTargetNumber } from './rules.js'
+import { alphaStrikeQuickStartDefaults, calculateQuickStartModifiers, heatModifier, hitProbability, targetMovementModifier, totalTargetNumber } from './rules.js'
+import AlphaStrikeQuickStart from './AlphaStrikeQuickStart.jsx'
 
 const STORAGE_KEY = 'gator-battletech-v1'
 
@@ -36,6 +37,7 @@ const initialState = {
     losLinked: { lightWoods: false, heavyWoods: false, targetTerrain: false },
     los: { distance: 1, targetTerrain: 'clear', path: [] },
   },
+  alphaStrikeQuick: alphaStrikeQuickStartDefaults,
 }
 
 const attackerMoves = [
@@ -436,6 +438,12 @@ function App() {
           },
           losLinked: { ...initialState.quickStart.losLinked, ...(saved.quickStart?.losLinked || {}) },
         },
+        alphaStrikeQuick: {
+          ...initialState.alphaStrikeQuick,
+          ...(saved.alphaStrikeQuick || {}),
+          los: { ...initialState.alphaStrikeQuick.los, ...(saved.alphaStrikeQuick?.los || {}) },
+          losLinked: { ...initialState.alphaStrikeQuick.losLinked, ...(saved.alphaStrikeQuick?.losLinked || {}) },
+        },
       }
     } catch { return initialState }
   })
@@ -444,7 +452,8 @@ function App() {
   const touchStart = useRef(null)
   const activeRuleset = RULESETS.find((ruleset) => ruleset.id === state.ruleset) || RULESETS[0]
   const isQuickStart = state.ruleset === 'quick-start'
-  const isAlphaStrike = state.ruleset.startsWith('alpha-strike')
+  const isAlphaStrikeQuick = state.ruleset === 'alpha-strike-quick-start'
+  const isPlaceholder = state.ruleset === 'alpha-strike'
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }, [state])
 
@@ -657,16 +666,16 @@ function App() {
         </div>
       </section>
 
-      {!isAlphaStrike && <nav className="mx-auto mt-3 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
+      {!isPlaceholder && <nav className="mx-auto mt-3 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
         <div className="grid w-full max-w-md grid-cols-2 rounded-xl border border-line bg-panel/80 p-1">
           <button type="button" onClick={() => setActiveView('los')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'los' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Line of sight</button>
           <button type="button" onClick={() => setActiveView('targeting')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'targeting' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Targeting</button>
         </div>
       </nav>}
 
-      {isAlphaStrike ? <AlphaStrikePlaceholder ruleset={activeRuleset} /> : <>
+      {isPlaceholder ? <AlphaStrikePlaceholder ruleset={activeRuleset} /> : <>
       <div onTouchStart={(event) => { touchStart.current = event.touches[0].clientX }} onTouchEnd={handleTouchEnd}>
-      {activeView === 'targeting' ? (
+      {isAlphaStrikeQuick ? <AlphaStrikeQuickStart activeView={activeView} data={state.alphaStrikeQuick} update={(updater) => setState((current) => ({ ...current, alphaStrikeQuick: typeof updater === 'function' ? updater(current.alphaStrikeQuick) : { ...current.alphaStrikeQuick, ...updater } }))} /> : activeView === 'targeting' ? (
       <main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:py-8">
         <div className="order-2 space-y-4 lg:order-1">
           <div className="mb-6">
