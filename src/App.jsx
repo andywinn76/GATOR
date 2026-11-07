@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { alphaStrikeQuickStartDefaults, calculateQuickStartModifiers, heatModifier, hitProbability, targetMovementModifier, totalTargetNumber } from './rules.js'
+import { alphaStrikeCoreDefaults, alphaStrikeQuickStartDefaults, calculateQuickStartModifiers, heatModifier, hitProbability, targetMovementModifier, totalTargetNumber } from './rules.js'
+import AlphaStrikeCore from './AlphaStrikeCore.jsx'
 import AlphaStrikeQuickStart from './AlphaStrikeQuickStart.jsx'
 
 const STORAGE_KEY = 'gator-battletech-v1'
@@ -37,6 +38,7 @@ const initialState = {
     losLinked: { lightWoods: false, heavyWoods: false, targetTerrain: false },
     los: { distance: 1, targetTerrain: 'clear', path: [] },
   },
+  alphaStrikeCore: alphaStrikeCoreDefaults,
   alphaStrikeQuick: alphaStrikeQuickStartDefaults,
 }
 
@@ -400,25 +402,6 @@ function RulesetSelector({ value, onChange }) {
   )
 }
 
-function AlphaStrikePlaceholder({ ruleset }) {
-  return (
-    <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-12">
-      <section className="panel relative overflow-hidden p-6 text-center sm:p-10">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(214,255,56,.09),transparent_55%)]" />
-        <div className="relative">
-          <p className="eyebrow">Reserved rules module</p>
-          <h1 className="mt-3 font-display text-4xl font-bold uppercase tracking-tight text-white sm:text-6xl">{ruleset.name}</h1>
-          <div className="mx-auto mt-5 inline-flex items-center gap-2 rounded-md border border-acid/25 bg-acid/[.06] px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-[.18em] text-acid">
-            <span className="h-1.5 w-1.5 rounded-full bg-acid shadow-[0_0_10px_#d6ff38]" />
-            Coming soon
-          </div>
-          <p className="mx-auto mt-5 max-w-xl text-sm leading-6 text-mist">This mode is ready for its own Alpha Strike calculator. Until those rules are implemented, Classic BattleTech controls stay hidden to prevent mixing systems.</p>
-        </div>
-      </section>
-    </main>
-  )
-}
-
 function App() {
   const [state, setState] = useState(() => {
     try {
@@ -438,6 +421,13 @@ function App() {
           },
           losLinked: { ...initialState.quickStart.losLinked, ...(saved.quickStart?.losLinked || {}) },
         },
+        alphaStrikeCore: {
+          ...initialState.alphaStrikeCore,
+          ...(saved.alphaStrikeCore || {}),
+          targetTmm: Math.min(5, Math.max(0, Number(saved.alphaStrikeCore?.targetTmm ?? initialState.alphaStrikeCore.targetTmm))),
+          los: { ...initialState.alphaStrikeCore.los, ...(saved.alphaStrikeCore?.los || {}) },
+          losLinked: { ...initialState.alphaStrikeCore.losLinked, ...(saved.alphaStrikeCore?.losLinked || {}) },
+        },
         alphaStrikeQuick: {
           ...initialState.alphaStrikeQuick,
           ...(saved.alphaStrikeQuick || {}),
@@ -453,8 +443,8 @@ function App() {
   const touchStart = useRef(null)
   const activeRuleset = RULESETS.find((ruleset) => ruleset.id === state.ruleset) || RULESETS[0]
   const isQuickStart = state.ruleset === 'quick-start'
+  const isAlphaStrikeCore = state.ruleset === 'alpha-strike'
   const isAlphaStrikeQuick = state.ruleset === 'alpha-strike-quick-start'
-  const isPlaceholder = state.ruleset === 'alpha-strike'
 
   useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)) }, [state])
 
@@ -667,16 +657,15 @@ function App() {
         </div>
       </section>
 
-      {!isPlaceholder && <nav className="mx-auto mt-3 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
+      <nav className="mx-auto mt-3 flex max-w-7xl justify-center px-4 sm:px-6" aria-label="Calculator views">
         <div className="grid w-full max-w-md grid-cols-2 rounded-xl border border-line bg-panel/80 p-1">
           <button type="button" onClick={() => setActiveView('los')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'los' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Line of sight</button>
           <button type="button" onClick={() => setActiveView('targeting')} className={`h-10 rounded-lg font-display text-xs font-bold uppercase tracking-[.14em] transition ${activeView === 'targeting' ? 'bg-acid text-ink' : 'text-mist hover:text-white'}`}>Targeting</button>
         </div>
-      </nav>}
+      </nav>
 
-      {isPlaceholder ? <AlphaStrikePlaceholder ruleset={activeRuleset} /> : <>
       <div onTouchStart={(event) => { touchStart.current = event.touches[0].clientX }} onTouchEnd={handleTouchEnd}>
-      {isAlphaStrikeQuick ? <AlphaStrikeQuickStart activeView={activeView} data={state.alphaStrikeQuick} update={(updater) => setState((current) => ({ ...current, alphaStrikeQuick: typeof updater === 'function' ? updater(current.alphaStrikeQuick) : { ...current.alphaStrikeQuick, ...updater } }))} /> : activeView === 'targeting' ? (
+      {isAlphaStrikeCore ? <AlphaStrikeCore activeView={activeView} data={state.alphaStrikeCore} update={(updater) => setState((current) => ({ ...current, alphaStrikeCore: typeof updater === 'function' ? updater(current.alphaStrikeCore) : { ...current.alphaStrikeCore, ...updater } }))} /> : isAlphaStrikeQuick ? <AlphaStrikeQuickStart activeView={activeView} data={state.alphaStrikeQuick} update={(updater) => setState((current) => ({ ...current, alphaStrikeQuick: typeof updater === 'function' ? updater(current.alphaStrikeQuick) : { ...current.alphaStrikeQuick, ...updater } }))} /> : activeView === 'targeting' ? (
       <main className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:py-8">
         <div className="order-2 space-y-4 lg:order-1">
           <div className="mb-6">
@@ -859,7 +848,6 @@ function App() {
           <path d="m6 18 6-6 6 6" />
         </svg>
       </button>}
-      </>}
       <footer className="mx-auto max-w-7xl px-4 pb-8 pt-2 text-center font-mono text-[9px] uppercase tracking-widest text-[#4f5a55] sm:px-6">Unofficial fan-made play aid · BattleTech is a trademark of The Topps Company, Inc.</footer>
     </div>
   )

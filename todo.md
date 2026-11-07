@@ -34,8 +34,8 @@ The first release is intentionally scoped to **BattleTech: A Game of Armored Com
 - [ ] Add **BattleMech Manual** mode for the complete BattleMech-focused rules presentation.
   - Separate standard rules from optional rules.
   - Add equipment-driven modifiers such as targeting computers and specialized munitions only when the selected attack supports them.
-- [ ] Add **Alpha Strike: Commander’s Edition** mode.
-  - Implement the full SATOR table, unit-type modifiers, special abilities, and current errata.
+- [x] Add **Alpha Strike: Commander’s Edition** mode.
+  - Implemented the standard SATOR attack table, attack-relevant unit specials, combined-arms modifiers, core LOS, and v7.02 errata corrections.
   - Keep this mode separate from Alpha Strike Quick-Start.
 
 ## Advanced and optional variants
