@@ -3,3 +3,6 @@ dist
 .vercel
 *.local
 npm-debug.log*
+
+# Rulebooks and other local reference documents
+*.pdf
