@@ -1,0 +1,24 @@
+{
+  "name": "GATOR BattleTech Targeting Computer",
+  "short_name": "GATOR",
+  "description": "BattleTech GATOR and Alpha Strike SATOR attack modifier calculator.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#090d0c",
+  "theme_color": "#090d0c",
+  "icons": [
+    {
+      "src": "/assets/gator-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/gator-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

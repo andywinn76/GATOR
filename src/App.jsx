@@ -621,10 +621,12 @@ function App() {
       <header className="border-b border-line/70 bg-ink/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="relative h-10 w-10 overflow-hidden rounded-xl border border-acid/30 bg-acid/[.08]">
-              <div className="absolute left-2 top-2 h-6 w-6 rotate-45 border-2 border-acid" />
-              <div className="absolute left-[17px] top-1 h-8 w-1 bg-acid" />
-            </div>
+            <img
+              src="/assets/gator-icon-192.png"
+              alt=""
+              aria-hidden="true"
+              className="h-10 w-10 shrink-0 rounded-xl shadow-[0_0_14px_rgba(214,255,56,.12)]"
+            />
             <div>
               <p className="font-display text-xl font-bold uppercase leading-none tracking-[.14em] text-white">GATOR</p>
               <p className="mt-1 hidden font-mono text-[9px] uppercase tracking-[.18em] text-mist min-[430px]:block">Targeting computer // CBT</p>
